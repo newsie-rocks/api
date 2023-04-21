@@ -7,3 +7,12 @@ publish = false
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+hyper = { version = "0.14", features = ["full"] }
+tokio = { version = "1", features = ["full"] }
+config = "0.13.3"
+serde = { version = "1.0.160", features = ["serde_derive"] }
+thiserror = "1.0.40"
+serde_json = "1.0.96"
+jsonwebtoken = "8.3.0"
+tokio-postgres = "0.7.8"
+deadpool-postgres = "0.10.5"

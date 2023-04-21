@@ -4,5 +4,17 @@
       "path": "."
     }
   ],
-  "settings": {}
+  "settings": {
+    "cSpell.words": [
+      "dbname",
+      "deadpool",
+      "jsonwebtoken",
+      "mehhhh",
+      "Middlewares",
+      "sqlx",
+      "thiserror"
+    ],
+    "rust-analyzer.linkedProjects": ["./Cargo.toml"],
+    "cSpell.diagnosticLevel": "Hint"
+  }
 }
