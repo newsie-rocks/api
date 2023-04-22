@@ -102,9 +102,6 @@ pub async fn wrap_app_handler(
     responses(
         (status = 200, description = "API is up"),
         (status = 500, description = "API is unavailable")
-    ),
-    params(
-        ("id" = u64, Path, description = "Pet database id to get Pet for"),
     )
 ))]
 pub async fn handle_base(_ctx: Context, _req: HttpRequest) -> Result<HttpResponse, Infallible> {

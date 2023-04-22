@@ -1,13 +1,30 @@
 # api
 
-API
+## Overview
 
-## Features
+REST API webservice
 
-- User management
-- User feeds
-- AI api calls (summary, semantic search)
+The service manages:
 
-## Services
+- authentication
+- user feeds
+- call of ML models
 
-- DB: PostgreSQL
+## OpenAPI doc
+
+```sh
+cargo run  --bin docgen -F docgen > doc/openapi/specs.yaml
+redocly preview-docs doc/openapi/specs.yaml
+```
+
+## Local dev
+
+### PostgresQL
+
+```sh
+brew services start postgresql@15
+```
+
+### Tracing
+
+TBD

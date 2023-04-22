@@ -11,6 +11,8 @@
       "jsonwebtoken",
       "mehhhh",
       "Middlewares",
+      "openapi",
+      "opentelemetry",
       "sqlx",
       "thiserror",
       "utoipa"

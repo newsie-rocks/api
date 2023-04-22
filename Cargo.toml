@@ -3,11 +3,12 @@ name = "api"
 version = "0.1.0"
 edition = "2021"
 publish = false
+default-run = "api"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [[bin]]
-name = "docgen"                #
+name = "docgen"
 required-features = ["docgen"]
 
 [features]
@@ -28,4 +29,7 @@ time = "0.3.20"
 argon2 = "0.5.0"
 futures = "0.3.28"
 cookie = "0.17.0"
-utoipa = { version = "3.3.0", optional = true }
+utoipa = { version = "3.3.0", optional = true, features = ["yaml"] }
+opentelemetry = { version = "0.18.0", features = ["rt-tokio"] }
+tracing = "0.1.37"
+tracing-subscriber = { version = "0.3.17", features = ["env-filter"] }

@@ -18,6 +18,8 @@ pub struct AppConfig {
     pub db: DbConfig,
     /// Auth configuration
     pub auth: AuthConfig,
+    /// Trace configuration
+    pub trace: TraceConfig,
 }
 
 /// Application configuration error
@@ -113,8 +115,18 @@ impl DbConfig {
     }
 }
 
+/// Trace configuration
+#[derive(Debug, Deserialize)]
+pub struct TraceConfig {
+    /// Export traces to stdout
+    pub stdout: bool,
+    /// Trace filter
+    pub filter: String,
+}
+
 #[cfg(test)]
 mod tests {
+
     // Note this useful idiom: importing names from outer (for mod tests) scope.
     use super::*;
 
@@ -126,10 +138,15 @@ mod tests {
         let server_port = std::env::var("APP_SERVER_PORT").unwrap();
         let auth_secret = std::env::var("APP_AUTH_SECRET").unwrap();
         let db_url = std::env::var("APP_DB_URL").unwrap();
+        let trace_stdout = std::env::var("APP_TRACE_STDOUT").unwrap();
+        let trace_filter = std::env::var("APP_TRACE_FILTER").unwrap();
         assert_eq!(cfg.server.host, server_host);
         assert_eq!(cfg.server.port.to_string(), server_port);
         assert_eq!(cfg.auth.secret, auth_secret);
         assert_eq!(cfg.db.url, db_url);
+        // NB:  trace.stdout is a bool, so .to_string() might fail depending on the APP_TRACE_STDOUT value
+        assert_eq!(cfg.trace.stdout.to_string(), trace_stdout);
+        assert_eq!(cfg.trace.filter.to_string(), trace_filter);
     }
 
     #[tokio::test]

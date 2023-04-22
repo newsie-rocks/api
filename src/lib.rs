@@ -13,6 +13,7 @@ pub mod config;
 pub mod data;
 pub mod http;
 pub mod svc;
+pub mod trace;
 
 /// Starts the hyper server
 pub async fn start_server() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
@@ -22,6 +23,9 @@ pub async fn start_server() -> Result<(), Box<dyn std::error::Error + Send + Syn
     // Create a db connection pool
     // NB: wrapped inside an [Arc] to pass it along
     let db_pool = Arc::new(cfg.db.pool());
+
+    // Init the tracing framework
+    trace::init_tracer(cfg);
 
     // Create the service
     let service = make_service_fn(|_conn| {

@@ -1,4 +1,4 @@
-//! Generatea the OpenAPI documentation
+//! Generates the OpenAPI documentation
 
 use utoipa::OpenApi;
 
@@ -10,5 +10,5 @@ use utoipa::OpenApi;
 struct ApiDoc;
 
 fn main() {
-    println!("{}", ApiDoc::openapi().to_pretty_json().unwrap());
+    println!("{}", ApiDoc::openapi().to_yaml().unwrap());
 }
