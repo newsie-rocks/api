@@ -14,7 +14,9 @@ pub async fn create_table(ctx: &Context) -> Result<(), DbError> {
     let stmt = "
     CREATE TABLE IF NOT EXISTS users (
         id      SERIAL PRIMARY KEY,
-        name    TEXT NOT NULL
+        name    TEXT NOT NULL,
+        email    TEXT NOT NULL,
+        password    TEXT NOT NULL
     )
     ";
     Ok(client.batch_execute(stmt).await?)
@@ -26,8 +28,10 @@ pub async fn create_table(ctx: &Context) -> Result<(), DbError> {
 pub async fn create(ctx: &Context, new_user: NewUser) -> Result<User, DbError> {
     let client = ctx.db_pool.get().await?;
 
-    let stmt = "INSERT into users (name) VALUES($1) RETURNING id";
-    let rows = client.query(stmt, &[&new_user.name]).await?;
+    let stmt = "INSERT into users (name, email, password) VALUES($1, $2, $3) RETURNING id";
+    let rows = client
+        .query(stmt, &[&new_user.name, &new_user.email, &new_user.password])
+        .await?;
 
     match rows.first() {
         Some(row) => {
@@ -36,6 +40,8 @@ pub async fn create(ctx: &Context, new_user: NewUser) -> Result<User, DbError> {
             let user = User {
                 id,
                 name: new_user.name,
+                email: new_user.email,
+                password: new_user.password,
             };
             Ok(user)
         }
@@ -55,8 +61,15 @@ pub async fn read(ctx: &Context, id: i32) -> Result<Option<User>, DbError> {
     Ok(rows.first().map(|row| {
         let id = row.get::<_, i32>("id");
         let name = row.get::<_, String>("name");
+        let email = row.get::<_, String>("email");
+        let password = row.get::<_, String>("password");
 
-        User { id, name }
+        User {
+            id,
+            name,
+            email,
+            password,
+        }
     }))
 }
 
@@ -68,16 +81,26 @@ pub async fn update(ctx: &Context, fields: UserFields) -> Result<(), DbError> {
     let mut params: Vec<&(dyn tokio_postgres::types::ToSql + Sync)> = vec![];
     params.push(&fields.id);
 
-    let mut i = 0;
+    let mut i = 1;
     if let Some(name) = fields.name.as_ref() {
         i += 1;
         params.push(name);
-        stmt_cols += "name = $2";
+        stmt_cols += format!("name = ${i}").as_ref();
+    }
+    if let Some(email) = fields.email.as_ref() {
+        i += 1;
+        params.push(email);
+        stmt_cols += format!("email = ${i}").as_ref();
+    }
+    if let Some(password) = fields.password.as_ref() {
+        i += 1;
+        params.push(password);
+        stmt_cols += format!("password = ${i}").as_ref();
     }
 
     // ... add other fields here
 
-    if i == 0 {
+    if i == 1 {
         // Nothing to update
         return Ok(());
     }
@@ -98,8 +121,32 @@ pub async fn delete(ctx: &Context, user: User) -> Result<(), DbError> {
     Ok(())
 }
 
+/// Reads a user with its email
+pub async fn read_with_email(ctx: &Context, email: &str) -> Result<Option<User>, DbError> {
+    let client = ctx.db_pool.get().await?;
+
+    let stmt = "SELECT * FROM users WHERE email = $1";
+    let rows = client.query(stmt, &[&email]).await?;
+
+    Ok(rows.first().map(|row| {
+        let id = row.get::<_, i32>("id");
+        let name = row.get::<_, String>("name");
+        let email = row.get::<_, String>("email");
+        let password = row.get::<_, String>("password");
+
+        User {
+            id,
+            name,
+            email,
+            password,
+        }
+    }))
+}
+
 #[cfg(test)]
 mod tests {
+
+    use std::sync::Arc;
 
     use crate::{
         config::AppConfig,
@@ -116,7 +163,7 @@ mod tests {
 
         Context {
             auth_secret: cfg.auth.secret.clone(),
-            db_pool,
+            db_pool: Arc::new(db_pool),
             user: None,
         }
     }
@@ -134,6 +181,8 @@ mod tests {
 
         let input = NewUser {
             name: "test_user".to_string(),
+            email: "test@nicklabs.io".to_string(),
+            password: "dummy".to_string(),
         };
         let user = super::create(&ctx, input).await.unwrap();
 
@@ -146,6 +195,8 @@ mod tests {
 
         let new_user_input = NewUser {
             name: "test_user".to_string(),
+            email: "test@nicklabs.io".to_string(),
+            password: "dummy".to_string(),
         };
         let new_user = super::create(&ctx, new_user_input).await.unwrap();
 
@@ -154,17 +205,38 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn read_with_email() {
+        let ctx = init_ctx().await;
+
+        let new_user_input = NewUser {
+            name: "test_user".to_string(),
+            email: "test@nicklabs.io".to_string(),
+            password: "dummy".to_string(),
+        };
+        let new_user = super::create(&ctx, new_user_input).await.unwrap();
+
+        let user = super::read_with_email(&ctx, new_user.email.as_str())
+            .await
+            .unwrap();
+        assert_eq!(user.unwrap().email, new_user.email);
+    }
+
+    #[tokio::test]
     async fn update() {
         let ctx = init_ctx().await;
 
         let new_user_input = NewUser {
             name: "test_user_update".to_string(),
+            email: "test@nicklabs.io".to_string(),
+            password: "dummy".to_string(),
         };
         let new_user = super::create(&ctx, new_user_input).await.unwrap();
 
         let fields = UserFields {
             id: new_user.id,
             name: Some("test_user_update_new_name".to_string()),
+            email: None,
+            password: None,
         };
         super::update(&ctx, fields).await.unwrap();
     }
@@ -175,6 +247,8 @@ mod tests {
 
         let new_user_input = NewUser {
             name: "test_user".to_string(),
+            email: "test@nicklabs.io".to_string(),
+            password: "dummy".to_string(),
         };
         let new_user = super::create(&ctx, new_user_input).await.unwrap();
 

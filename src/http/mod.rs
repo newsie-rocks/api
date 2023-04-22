@@ -1,18 +1,23 @@
 //! HTTP handlers
 
-use hyper::{header::CONTENT_TYPE, Body, Method};
-use serde::Serialize;
+use std::{convert::Infallible, future::Future, panic::AssertUnwindSafe, sync::Arc};
+
+use futures::future::FutureExt;
+use hyper::{header::CONTENT_TYPE, Body, Method, StatusCode};
 
 use crate::svc::Context;
 
+use self::error::HttpError;
+
 pub mod auth;
+pub mod error;
 pub mod mdw;
 
 /// HTTP request
-pub type Request = hyper::Request<Body>;
+pub type HttpRequest = hyper::Request<Body>;
 
 /// HTTP response
-pub type Response = hyper::Response<Body>;
+pub type HttpResponse = hyper::Response<Body>;
 
 /// Application context
 #[derive(Debug, Clone)]
@@ -20,11 +25,14 @@ pub struct AppContext {
     /// Authentication secret
     pub auth_secret: String,
     /// DB pool
-    pub db_pool: deadpool_postgres::Pool,
+    pub db_pool: Arc<deadpool_postgres::Pool>,
 }
 
 /// Application handlers
-pub async fn app_handler(app_ctx: AppContext, req: Request) -> Result<Response, hyper::Error> {
+pub async fn app_handler(
+    app_ctx: AppContext,
+    req: HttpRequest,
+) -> Result<HttpResponse, Infallible> {
     // Define the request context
     let mut ctx = Context {
         auth_secret: app_ctx.auth_secret.clone(),
@@ -35,37 +43,20 @@ pub async fn app_handler(app_ctx: AppContext, req: Request) -> Result<Response, 
     // Pass middleware(s)
     match self::mdw::extract_user(&mut ctx, &req).await {
         Ok(user) => user,
-        Err(err) => match err {
-            mdw::MdwError::BadRequest { message } => {
-                let api_error = ApiError::InvalidInput { message };
-                return Ok(api_error.response());
-            }
-            mdw::MdwError::Internal { message } => {
-                let api_error = ApiError::Server {
-                    message: "Internal server error".to_string(),
-                };
-                return Ok(api_error.response());
-            }
-            mdw::MdwError::InvalidToken { message: _ } => {}
-        },
+        Err(err) => {
+            let http_error: HttpError = err.into();
+            return Ok(http_error.response());
+        }
     };
 
     // Process requests
     match (req.method(), req.uri().path()) {
-        // -- BASE --
-        (&Method::GET, "/") => {
-            let body = Body::from("API is up");
-            Ok(hyper::Response::builder()
-                .header(CONTENT_TYPE, "text/plain")
-                .body(body)
-                .unwrap())
-        }
         // -- AUTH --
         (&Method::POST, "/auth/signup") => self::auth::handle_signup(ctx, req).await,
         (&Method::POST, "/auth/login") => self::auth::handle_login(ctx, req).await,
         (&Method::GET, "/auth/me") => self::auth::handle_get_user(ctx, req).await,
-        (&Method::PATCH, "/auth/me") => self::auth::handle_update_user(ctx, req).await,
-        (&Method::DELETE, "/auth/me") => self::auth::handle_delete_user(ctx, req).await,
+        // (&Method::PATCH, "/auth/me") => self::auth::handle_update_user(ctx, req).await,
+        // (&Method::DELETE, "/auth/me") => self::auth::handle_delete_user(ctx, req).await,
         // -- FEEDS --
         (&Method::GET, "/feeds") => {
             todo!("Get all feeds")
@@ -76,50 +67,61 @@ pub async fn app_handler(app_ctx: AppContext, req: Request) -> Result<Response, 
         (&Method::DELETE, "/feeds") => {
             todo!("Delete a feed")
         }
-        // 404
-        _ => {
-            let body = Body::from("mehhhh, nothing here");
-            Ok(hyper::Response::builder()
-                .status(404)
-                .header(CONTENT_TYPE, "text/plain")
-                .body(body)
-                .unwrap())
-        }
+        // -- OTHER --
+        (&Method::GET, "/") => handle_base(ctx, req).await,
+        _ => handle_404(ctx, req).await,
     }
 }
 
-/// API error
-#[derive(Debug, thiserror::Error, Serialize)]
-pub enum ApiError {
-    /// Invalid input
-    #[error("invalid input:  {message:?}")]
-    InvalidInput {
-        /// Error message
-        message: String,
-    },
-    /// Server error
-    #[error("server error:  {message:?}")]
-    Server {
-        /// Error message
-        message: String,
-    },
+/// Wraps the app handler
+///
+/// This is used to catch a panic inside the handler
+pub async fn wrap_app_handler(
+    fut: impl Future<Output = Result<HttpResponse, Infallible>>,
+) -> Result<HttpResponse, Infallible> {
+    // 1. Wrap the future in AssertUnwindSafe, to make the compiler happy
+    //    and allow us doing this. The wrapper also implements `Future`
+    //    and delegates `poll` inside.
+    // 2. Turn panics falling out of the `poll` into errors. Note that we
+    //    get `Result<Result<_, _>, _>` thing here.
+    match AssertUnwindSafe(fut).catch_unwind().await {
+        // Here we unwrap just the outer panic-induced `Result`, returning
+        // the inner `Result`
+        Ok(response) => response,
+        Err(_panic) => Ok(hyper::Response::builder()
+            .status(StatusCode::INTERNAL_SERVER_ERROR)
+            .body(Body::from("We screwed up, sorry!"))
+            .unwrap()),
+    }
 }
 
-impl ApiError {
-    /// Converts to an HTTP response
-    pub fn response(self) -> Response {
-        let status = match &self {
-            ApiError::InvalidInput { message: _ } => 400,
-            ApiError::Server { message: _ } => 500,
-        };
+/// Handles the base route
+#[cfg_attr(feature = "docgen", utoipa::path(
+    get,
+    path = "/",
+    responses(
+        (status = 200, description = "API is up"),
+        (status = 500, description = "API is unavailable")
+    ),
+    params(
+        ("id" = u64, Path, description = "Pet database id to get Pet for"),
+    )
+))]
+pub async fn handle_base(_ctx: Context, _req: HttpRequest) -> Result<HttpResponse, Infallible> {
+    let body = Body::from("API is up");
+    Ok(hyper::Response::builder()
+        .status(StatusCode::OK)
+        .header(CONTENT_TYPE, "text/plain")
+        .body(body)
+        .unwrap())
+}
 
-        let body_json = serde_json::to_string(&self).unwrap();
-        let body = Body::from(body_json);
-
-        hyper::Response::builder()
-            .status(status)
-            .header(CONTENT_TYPE, "application/json")
-            .body(body)
-            .unwrap()
-    }
+/// Handles the base route
+async fn handle_404(_ctx: Context, _req: HttpRequest) -> Result<HttpResponse, Infallible> {
+    let body = Body::from("mehhhh, nothing here");
+    Ok(hyper::Response::builder()
+        .status(StatusCode::NOT_FOUND)
+        .header(CONTENT_TYPE, "text/plain")
+        .body(body)
+        .unwrap())
 }

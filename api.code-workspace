@@ -12,7 +12,8 @@
       "mehhhh",
       "Middlewares",
       "sqlx",
-      "thiserror"
+      "thiserror",
+      "utoipa"
     ],
     "rust-analyzer.linkedProjects": ["./Cargo.toml"],
     "cSpell.diagnosticLevel": "Hint"
