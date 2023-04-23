@@ -25,7 +25,10 @@ struct SignupRespBody {
 }
 
 /// Handles the signup request
+#[tracing::instrument(skip(ctx, req))]
 pub async fn handle_signup(ctx: Context, req: HttpRequest) -> Result<HttpResponse, Infallible> {
+    tracing::trace!("receiving request");
+
     let body = match hyper::body::to_bytes(req.into_body()).await {
         Ok(b) => b,
         Err(err) => {

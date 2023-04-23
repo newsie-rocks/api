@@ -68,7 +68,7 @@ pub async fn app_handler(
             todo!("Delete a feed")
         }
         // -- OTHER --
-        (&Method::GET, "/") => handle_base(ctx, req).await,
+        (&Method::GET, "/") => handle_hello(ctx, req).await,
         _ => handle_404(ctx, req).await,
     }
 }
@@ -96,6 +96,7 @@ pub async fn wrap_app_handler(
 }
 
 /// Handles the base route
+#[tracing::instrument]
 #[cfg_attr(feature = "docgen", utoipa::path(
     get,
     path = "/",
@@ -104,7 +105,9 @@ pub async fn wrap_app_handler(
         (status = 500, description = "API is unavailable")
     )
 ))]
-pub async fn handle_base(_ctx: Context, _req: HttpRequest) -> Result<HttpResponse, Infallible> {
+pub async fn handle_hello(_ctx: Context, _req: HttpRequest) -> Result<HttpResponse, Infallible> {
+    tracing::trace!("receiving request");
+
     let body = Body::from("API is up");
     Ok(hyper::Response::builder()
         .status(StatusCode::OK)
@@ -114,7 +117,9 @@ pub async fn handle_base(_ctx: Context, _req: HttpRequest) -> Result<HttpRespons
 }
 
 /// Handles the base route
+#[tracing::instrument(skip_all)]
 async fn handle_404(_ctx: Context, _req: HttpRequest) -> Result<HttpResponse, Infallible> {
+    tracing::trace!("receiving request with invalid URL path");
     let body = Body::from("mehhhh, nothing here");
     Ok(hyper::Response::builder()
         .status(StatusCode::NOT_FOUND)
