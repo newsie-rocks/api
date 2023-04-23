@@ -1,4 +1,4 @@
-//! HTTP handlers
+//! Handlers
 
 use std::{convert::Infallible, future::Future, panic::AssertUnwindSafe, sync::Arc};
 

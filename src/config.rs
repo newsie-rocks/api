@@ -1,4 +1,4 @@
-//! App configuration  
+//! Configuration  
 
 use std::{net::SocketAddr, str::FromStr};
 

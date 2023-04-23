@@ -1,4 +1,12 @@
-//! API library
+//! This crate contains the REST API service.
+//!
+//! # Features
+//!
+//! - **docgen**: activate this flag to generate the OpenAPI specs.
+//!
+//! # Other tools
+//!
+//! - **docgen**: The docgen binary generates the OpenAPI documentation.
 
 #![deny(missing_docs)]
 

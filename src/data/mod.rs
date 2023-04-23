@@ -1,4 +1,4 @@
-//! Databases
+//! Data sources
 
 pub mod user;
 
