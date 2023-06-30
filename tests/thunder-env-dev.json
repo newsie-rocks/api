@@ -1,0 +1,12 @@
+{
+    "client": "Thunder Client",
+    "environmentName": "newsie-api-dev",
+    "dateExported": "2023-06-30T14:20:37.194Z",
+    "version": "1.0",
+    "variables": [
+        {
+            "name": "url",
+            "value": "http://127.0.0.1:3000"
+        }
+    ]
+}

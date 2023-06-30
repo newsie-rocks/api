@@ -7,17 +7,37 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     http::error::HttpErrorKind,
-    svc::{self, Context},
+    svc::{self, auth::NewUser, Context},
 };
 
 use super::{HttpError, HttpRequest, HttpResponse};
 
 /// Signup request body
-type SignupReqBody = svc::auth::NewUser;
+#[derive(Debug, Deserialize)]
+#[cfg_attr(feature = "docgen", derive(utoipa::ToSchema))]
+pub struct SignupReqBody {
+    /// Name
+    pub name: String,
+    /// Email
+    pub email: String,
+    /// Password
+    pub password: String,
+}
+
+impl From<SignupReqBody> for NewUser {
+    fn from(value: SignupReqBody) -> Self {
+        Self {
+            name: value.name,
+            email: value.email,
+            password: value.password,
+        }
+    }
+}
 
 /// Signup response body
 #[derive(Debug, Serialize)]
-struct SignupRespBody {
+#[cfg_attr(feature = "docgen", derive(utoipa::ToSchema))]
+pub struct SignupRespBody {
     /// JWT auth token
     token: String,
     /// User
@@ -26,7 +46,17 @@ struct SignupRespBody {
 
 /// Handles the signup request
 #[tracing::instrument(skip(ctx, req))]
-pub async fn handle_signup(ctx: Context, req: HttpRequest) -> Result<HttpResponse, Infallible> {
+#[cfg_attr(feature = "docgen", utoipa::path(
+    get,
+    path = "/auth/signup",
+    request_body = SignupRespBody,
+    responses(
+        (status = 201, description = "User is created", body = SignupRespBody),
+        (status = 401, description = "Unauthorized"),
+        (status = 500, description = "Server error")
+    )
+))]
+pub async fn signup(ctx: Context, req: HttpRequest) -> Result<HttpResponse, Infallible> {
     tracing::trace!("receiving request");
 
     let body = match hyper::body::to_bytes(req.into_body()).await {
@@ -37,7 +67,7 @@ pub async fn handle_signup(ctx: Context, req: HttpRequest) -> Result<HttpRespons
         }
     };
     let new_user = match serde_json::from_slice::<SignupReqBody>(&body) {
-        Ok(i) => i,
+        Ok(i) => i.into(),
         Err(err) => {
             let http_error = HttpError::new(HttpErrorKind::InvalidRequest, format!("{err}"), None);
             return Ok(http_error.response());

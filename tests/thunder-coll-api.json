@@ -1,0 +1,59 @@
+{
+    "client": "Thunder Client",
+    "collectionName": "Newsie API",
+    "dateExported": "2023-06-30T14:20:07.335Z",
+    "version": "1.1",
+    "folders": [],
+    "requests": [
+        {
+            "_id": "00d597c5-9aff-4ce6-a210-08df5f8ac27a",
+            "colId": "ff987564-a5f3-444e-82b5-7daa048199be",
+            "containerId": "",
+            "name": "root",
+            "url": "{{url}}",
+            "method": "GET",
+            "sortNum": 20000,
+            "created": "2023-06-30T11:54:05.403Z",
+            "modified": "2023-06-30T11:54:10.756Z",
+            "headers": [],
+            "params": [],
+            "tests": []
+        },
+        {
+            "_id": "8587d088-742a-4013-bfd4-3c18e6b0d8f9",
+            "colId": "ff987564-a5f3-444e-82b5-7daa048199be",
+            "containerId": "",
+            "name": "up",
+            "url": "{{url}}/up",
+            "method": "GET",
+            "sortNum": 30000,
+            "created": "2023-06-30T11:54:14.671Z",
+            "modified": "2023-06-30T11:54:23.419Z",
+            "headers": [],
+            "params": [],
+            "tests": []
+        },
+        {
+            "_id": "2f5a12c0-d367-467a-a4be-36771bc05b3a",
+            "colId": "ff987564-a5f3-444e-82b5-7daa048199be",
+            "containerId": "",
+            "name": "signup",
+            "url": "{{url}}/auth/signup",
+            "method": "POST",
+            "sortNum": 40000,
+            "created": "2023-06-30T13:11:24.308Z",
+            "modified": "2023-06-30T14:19:52.256Z",
+            "headers": [],
+            "params": [],
+            "body": {
+                "type": "json",
+                "raw": "{\n  \"name\": \"nick\",\n  \"email\": \"nla@melix.net\",\n  \"password\": \"enter\"\n}",
+                "form": []
+            },
+            "tests": []
+        }
+    ],
+    "settings": {
+        "envId": "34ea38d8-d4fc-4d0d-b1bd-d80dc6f1d5c9"
+    }
+}

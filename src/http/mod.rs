@@ -64,16 +64,16 @@ pub async fn app_handler(
 
     // Process requests
     match (req.method(), req.uri().path()) {
-        // -- ROOT --
+        // ROOT
         (&Method::GET, "/") => get_root(ctx, req).await,
         (&Method::GET, "/up") => healthcheck(ctx, req).await,
-        // -- AUTH --
-        (&Method::POST, "/auth/signup") => self::auth::handle_signup(ctx, req).await,
+        // AUTH
+        (&Method::POST, "/auth/signup") => self::auth::signup(ctx, req).await,
         (&Method::POST, "/auth/login") => self::auth::handle_login(ctx, req).await,
         (&Method::GET, "/auth/me") => self::auth::handle_get_user(ctx, req).await,
         // (&Method::PATCH, "/auth/me") => self::auth::handle_update_user(ctx, req).await,
         // (&Method::DELETE, "/auth/me") => self::auth::handle_delete_user(ctx, req).await,
-        // -- FEEDS --
+        // FEEDS
         (&Method::GET, "/feeds") => {
             todo!("Get all feeds")
         }
@@ -83,7 +83,7 @@ pub async fn app_handler(
         (&Method::DELETE, "/feeds") => {
             todo!("Delete a feed")
         }
-        // -- NOT FOUND --
+        // NOT FOUND
         _ => handle_404(ctx, req).await,
     }
 }
@@ -121,8 +121,7 @@ pub async fn wrap_app_handler(
     )
 ))]
 pub async fn get_root(_ctx: Context, _req: HttpRequest) -> Result<HttpResponse, Infallible> {
-    tracing::trace!("receiving request");
-
+    tracing::trace!("root");
     let message = "Api service".to_string();
 
     let body = Body::from(message);
@@ -133,7 +132,7 @@ pub async fn get_root(_ctx: Context, _req: HttpRequest) -> Result<HttpResponse, 
         .unwrap())
 }
 
-/// Healthcheck
+/// Health check
 #[tracing::instrument(skip_all)]
 #[cfg_attr(feature = "docgen", utoipa::path(
     get,
@@ -144,6 +143,7 @@ pub async fn get_root(_ctx: Context, _req: HttpRequest) -> Result<HttpResponse, 
     )
 ))]
 pub async fn healthcheck(_ctx: Context, _req: HttpRequest) -> Result<HttpResponse, Infallible> {
+    tracing::trace!("healthcheck");
     let body = Body::from("API is up");
     Ok(hyper::Response::builder()
         .status(StatusCode::OK)
@@ -154,9 +154,10 @@ pub async fn healthcheck(_ctx: Context, _req: HttpRequest) -> Result<HttpRespons
 
 /// Handles the NotFound path
 #[tracing::instrument(skip_all)]
-async fn handle_404(_ctx: Context, _req: HttpRequest) -> Result<HttpResponse, Infallible> {
-    tracing::trace!("receiving request with invalid URL path");
+async fn handle_404(_ctx: Context, req: HttpRequest) -> Result<HttpResponse, Infallible> {
+    tracing::trace!(uri = ?req.uri(), "receiving request with invalid URL path");
     let body = Body::from("mehhhh, nothing here");
+    tracing::trace!(req = ?req.uri(), "URI");
     Ok(hyper::Response::builder()
         .status(StatusCode::NOT_FOUND)
         .header(CONTENT_TYPE, "text/plain")

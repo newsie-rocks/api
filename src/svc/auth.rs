@@ -7,6 +7,7 @@ use super::Context;
 
 /// User
 #[derive(Debug, Serialize)]
+#[cfg_attr(feature = "docgen", derive(utoipa::ToSchema))]
 pub struct User {
     /// ID
     pub id: i32,
@@ -21,6 +22,7 @@ pub struct User {
 
 /// New user
 #[derive(Debug, Deserialize)]
+#[cfg_attr(feature = "docgen", derive(utoipa::ToSchema))]
 pub struct NewUser {
     /// Name
     pub name: String,
