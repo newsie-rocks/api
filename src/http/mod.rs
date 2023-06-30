@@ -4,8 +4,9 @@ use std::{convert::Infallible, future::Future, panic::AssertUnwindSafe, sync::Ar
 
 use futures::future::FutureExt;
 use hyper::{header::CONTENT_TYPE, Body, Method, StatusCode};
+use qdrant_client::prelude::*;
 
-use crate::svc::Context;
+use crate::{config::AppConfig, svc::Context};
 
 use self::error::HttpError;
 
@@ -20,12 +21,24 @@ pub type HttpRequest = hyper::Request<Body>;
 pub type HttpResponse = hyper::Response<Body>;
 
 /// Application context
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct AppContext {
-    /// Authentication secret
-    pub auth_secret: String,
-    /// DB pool
-    pub db_pool: Arc<deadpool_postgres::Pool>,
+    /// Configuration values
+    pub cfg: &'static AppConfig,
+    /// PostGres pool
+    pub postgres_pool: Arc<deadpool_postgres::Pool>,
+    /// Qdrant client
+    pub qdrant_client: Arc<QdrantClient>,
+}
+
+impl std::fmt::Debug for AppContext {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AppContext")
+            .field("cfg", &self.cfg)
+            .field("postgres_pool", &self.postgres_pool)
+            .field("qdrant_client", &self.qdrant_client.cfg.uri)
+            .finish()
+    }
 }
 
 /// Application handlers
@@ -35,8 +48,8 @@ pub async fn app_handler(
 ) -> Result<HttpResponse, Infallible> {
     // Define the request context
     let mut ctx = Context {
-        auth_secret: app_ctx.auth_secret.clone(),
-        db_pool: app_ctx.db_pool.clone(),
+        cfg: app_ctx.cfg,
+        db_pool: app_ctx.postgres_pool.clone(),
         user: None,
     };
 
@@ -51,6 +64,9 @@ pub async fn app_handler(
 
     // Process requests
     match (req.method(), req.uri().path()) {
+        // -- ROOT --
+        (&Method::GET, "/") => get_root(ctx, req).await,
+        (&Method::GET, "/up") => healthcheck(ctx, req).await,
         // -- AUTH --
         (&Method::POST, "/auth/signup") => self::auth::handle_signup(ctx, req).await,
         (&Method::POST, "/auth/login") => self::auth::handle_login(ctx, req).await,
@@ -67,8 +83,7 @@ pub async fn app_handler(
         (&Method::DELETE, "/feeds") => {
             todo!("Delete a feed")
         }
-        // -- OTHER --
-        (&Method::GET, "/") => handle_hello(ctx, req).await,
+        // -- NOT FOUND --
         _ => handle_404(ctx, req).await,
     }
 }
@@ -95,8 +110,8 @@ pub async fn wrap_app_handler(
     }
 }
 
-/// Handles the base route
-#[tracing::instrument]
+/// Serves the root path
+#[tracing::instrument(skip_all)]
 #[cfg_attr(feature = "docgen", utoipa::path(
     get,
     path = "/",
@@ -105,9 +120,30 @@ pub async fn wrap_app_handler(
         (status = 500, description = "API is unavailable")
     )
 ))]
-pub async fn handle_hello(_ctx: Context, _req: HttpRequest) -> Result<HttpResponse, Infallible> {
+pub async fn get_root(_ctx: Context, _req: HttpRequest) -> Result<HttpResponse, Infallible> {
     tracing::trace!("receiving request");
 
+    let message = "Api service".to_string();
+
+    let body = Body::from(message);
+    Ok(hyper::Response::builder()
+        .status(StatusCode::OK)
+        .header(CONTENT_TYPE, "text/plain")
+        .body(body)
+        .unwrap())
+}
+
+/// Healthcheck
+#[tracing::instrument(skip_all)]
+#[cfg_attr(feature = "docgen", utoipa::path(
+    get,
+    path = "/up",
+    responses(
+        (status = 200, description = "API is up"),
+        (status = 500, description = "API is unavailable")
+    )
+))]
+pub async fn healthcheck(_ctx: Context, _req: HttpRequest) -> Result<HttpResponse, Infallible> {
     let body = Body::from("API is up");
     Ok(hyper::Response::builder()
         .status(StatusCode::OK)
@@ -116,7 +152,7 @@ pub async fn handle_hello(_ctx: Context, _req: HttpRequest) -> Result<HttpRespon
         .unwrap())
 }
 
-/// Handles the base route
+/// Handles the NotFound path
 #[tracing::instrument(skip_all)]
 async fn handle_404(_ctx: Context, _req: HttpRequest) -> Result<HttpResponse, Infallible> {
     tracing::trace!("receiving request with invalid URL path");

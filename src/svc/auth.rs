@@ -180,7 +180,7 @@ pub fn issue_user_token(ctx: &Context, user: &User) -> Result<String, AuthError>
     match jsonwebtoken::encode(
         &jsonwebtoken::Header::default(),
         &claims,
-        &jsonwebtoken::EncodingKey::from_secret(ctx.auth_secret.as_ref()),
+        &jsonwebtoken::EncodingKey::from_secret(ctx.cfg.auth.secret.as_ref()),
     ) {
         Ok(t) => Ok(t),
         Err(err) => Err(err.into()),
@@ -192,7 +192,7 @@ pub async fn read_user_with_token(ctx: &Context, token: &str) -> Result<Option<U
     // Decode the token
     let claims = match jsonwebtoken::decode::<AuthJwtClaims>(
         token,
-        &jsonwebtoken::DecodingKey::from_secret(ctx.auth_secret.as_ref()),
+        &jsonwebtoken::DecodingKey::from_secret(ctx.cfg.auth.secret.as_ref()),
         &jsonwebtoken::Validation::default(),
     ) {
         Ok(data) => data.claims,
@@ -238,10 +238,10 @@ mod tests {
     /// Initializes a dummy [Context] for tests
     async fn init_ctx() -> Context {
         let cfg = AppConfig::load().await;
-        let db_pool = cfg.db.pool();
+        let db_pool = cfg.postgres.pool();
 
         Context {
-            auth_secret: cfg.auth.secret.clone(),
+            cfg,
             db_pool: Arc::new(db_pool),
             user: None,
         }

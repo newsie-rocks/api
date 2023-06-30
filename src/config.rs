@@ -3,6 +3,7 @@
 use std::{net::SocketAddr, str::FromStr};
 
 use config::Config;
+use qdrant_client::prelude::*;
 use serde::Deserialize;
 use tokio::sync::OnceCell;
 
@@ -10,12 +11,14 @@ use tokio::sync::OnceCell;
 static APP_CONFIG: OnceCell<AppConfig> = OnceCell::const_new();
 
 /// Application configuration
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 pub struct AppConfig {
     /// Server config
     pub server: ServerConfig,
-    /// Database config
-    pub db: DbConfig,
+    /// PostGreSQL config
+    pub postgres: PostGresConfig,
+    /// Qdrant config
+    pub qdrant: QdrantConfig,
     /// Auth configuration
     pub auth: AuthConfig,
     /// Trace configuration
@@ -28,10 +31,13 @@ pub enum AppConfigError {
     /// Invalid server host configuration
     #[error("invalid server address")]
     InvalidServerHost(#[from] std::net::AddrParseError),
+    /// Invalid qdrant config
+    #[error("invalid qdrant config: {0}")]
+    InvalidQdrantConfig(String),
 }
 
 impl AppConfig {
-    /// Loads a configuration from environment variables and/or a config file
+    /// Loads a configuration from environment variables
     pub async fn load() -> &'static Self {
         APP_CONFIG
             .get_or_init(|| async {
@@ -42,7 +48,6 @@ impl AppConfig {
                             .separator("_")
                             .list_separator(" "),
                     )
-                    // .add_source(config::File::with_name("config"))
                     .build()
                     .unwrap();
 
@@ -53,7 +58,7 @@ impl AppConfig {
 }
 
 /// Server configuration
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 pub struct ServerConfig {
     /// Host
     pub host: String,
@@ -79,20 +84,28 @@ impl ServerConfig {
 }
 
 /// Auth configuration
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 pub struct AuthConfig {
-    /// jwt secret
+    /// JWT secret
     pub secret: String,
 }
 
-/// Database configuration
-#[derive(Debug, Deserialize, Default)]
-pub struct DbConfig {
+/// Postgres DB configuration
+#[derive(Debug, Deserialize, Clone)]
+pub struct PostGresConfig {
     /// URL connection string
     pub url: String,
 }
 
-impl DbConfig {
+impl Default for PostGresConfig {
+    fn default() -> Self {
+        Self {
+            url: "postgresql://nick:enter@localhost:5432/newsie?connect_timeout=10".into(),
+        }
+    }
+}
+
+impl PostGresConfig {
     /// Creates a new [deadpool_postgres::Pool]
     pub fn pool(&self) -> deadpool_postgres::Pool {
         // set TLS config
@@ -115,8 +128,32 @@ impl DbConfig {
     }
 }
 
+/// Qdrant configuration
+#[derive(Debug, Deserialize, Clone)]
+pub struct QdrantConfig {
+    /// URL connection string
+    pub url: String,
+}
+
+impl Default for QdrantConfig {
+    fn default() -> Self {
+        Self {
+            url: "http://localhost:6334".into(),
+        }
+    }
+}
+
+impl QdrantConfig {
+    /// Returns the qdrant client
+    pub fn client(&self) -> Result<QdrantClient, AppConfigError> {
+        let config = QdrantClientConfig::from_url(&self.url);
+        Ok(QdrantClient::new(Some(config))
+            .map_err(|err| AppConfigError::InvalidQdrantConfig(err.to_string()))?)
+    }
+}
+
 /// Trace configuration
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 pub struct TraceConfig {
     /// Export traces to stdout
     pub stdout: bool,
@@ -137,26 +174,36 @@ mod tests {
         let server_host = std::env::var("APP_SERVER_HOST").unwrap();
         let server_port = std::env::var("APP_SERVER_PORT").unwrap();
         let auth_secret = std::env::var("APP_AUTH_SECRET").unwrap();
-        let db_url = std::env::var("APP_DB_URL").unwrap();
+        let postgres_url = std::env::var("APP_POSTGRES_URL").unwrap();
+        let qdrant_url = std::env::var("APP_QDRANT_URL").unwrap();
         let trace_stdout = std::env::var("APP_TRACE_STDOUT").unwrap();
         let trace_filter = std::env::var("APP_TRACE_FILTER").unwrap();
         assert_eq!(cfg.server.host, server_host);
         assert_eq!(cfg.server.port.to_string(), server_port);
         assert_eq!(cfg.auth.secret, auth_secret);
-        assert_eq!(cfg.db.url, db_url);
+        assert_eq!(cfg.postgres.url, postgres_url);
+        assert_eq!(cfg.qdrant.url, qdrant_url);
         // NB:  trace.stdout is a bool, so .to_string() might fail depending on the APP_TRACE_STDOUT value
         assert_eq!(cfg.trace.stdout.to_string(), trace_stdout);
         assert_eq!(cfg.trace.filter.to_string(), trace_filter);
     }
 
     #[tokio::test]
-    async fn test_db_conn() {
+    async fn test_postgres_conn() {
         let cfg = AppConfig::load().await;
 
-        let db_pool = cfg.db.pool();
-        let db_client = db_pool.get().await.unwrap();
-        let rows = db_client.query("SELECT 1", &[]).await.unwrap();
+        let postgres_pool = cfg.postgres.pool();
+        let postgres_client = postgres_pool.get().await.unwrap();
+        let rows = postgres_client.query("SELECT 1", &[]).await.unwrap();
 
         assert_eq!(rows.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_qdrant_conn() {
+        let cfg = AppConfig::load().await;
+
+        let qdrant_client = cfg.qdrant.client().unwrap();
+        qdrant_client.health_check().await.unwrap();
     }
 }

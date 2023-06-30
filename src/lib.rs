@@ -28,22 +28,30 @@ pub async fn start_server() -> Result<(), Box<dyn std::error::Error + Send + Syn
     // Load the configuration
     let cfg = config::AppConfig::load().await;
 
-    // Create a db connection pool
+    // Create a PostGres connection pool
     // NB: wrapped inside an [Arc] to pass it along
-    let db_pool = Arc::new(cfg.db.pool());
+    let postgres_pool = Arc::new(cfg.postgres.pool());
+
+    // Create a Qdrant client
+    // NB: wrapped inside an [Arc] to pass it along
+    let qdrant_client = Arc::new(cfg.qdrant.client()?);
 
     // Init the tracing framework
     trace::init_tracer(cfg);
 
-    // Create the service
+    // Create the HTPTP service
     let service = make_service_fn(|_conn| {
-        //  clone the CB pool for each connection
-        let db_pool = db_pool.clone();
+        //  clone the PostGres pool for each connection
+        let postgres_pool = postgres_pool.clone();
+
+        //  clone the Qdrant client for each connection
+        let qdrant_client = qdrant_client.clone();
 
         // Define the application context
         let app_ctx = http::AppContext {
-            auth_secret: cfg.auth.secret.clone(),
-            db_pool,
+            cfg,
+            postgres_pool,
+            qdrant_client,
         };
 
         // Service to serve the request

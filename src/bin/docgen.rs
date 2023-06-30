@@ -4,7 +4,8 @@ use utoipa::OpenApi;
 
 #[derive(OpenApi)]
 #[openapi(paths(
-    api::http::handle_base,
+    api::http::get_root,
+    api::http::healthcheck,
     //
 ))]
 struct ApiDoc;

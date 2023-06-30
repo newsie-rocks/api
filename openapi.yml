@@ -1,0 +1,33 @@
+openapi: 3.0.3
+info:
+  title: api
+  description: ''
+  license:
+    name: ''
+  version: 0.1.0
+paths:
+  /:
+    get:
+      tags:
+      - api::http
+      summary: Serves the root path
+      description: Serves the root path
+      operationId: get_root
+      responses:
+        '200':
+          description: API is up
+        '500':
+          description: API is unavailable
+  /healthcheck:
+    get:
+      tags:
+      - api::http
+      summary: Healthcheck
+      description: Healthcheck
+      operationId: healthcheck
+      responses:
+        '200':
+          description: API is up
+        '500':
+          description: API is unavailable
+

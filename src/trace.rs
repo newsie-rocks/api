@@ -25,8 +25,13 @@ pub fn init_tracer(cfg: &AppConfig) {
 mod tests {
     use super::*;
 
+    #[tracing::instrument]
+    async fn do_that() {
+        tracing::info!("within span");
+    }
+
     #[tokio::test]
-    async fn test_tracing() {
+    async fn test_init() {
         let cfg = crate::config::AppConfig::load().await;
 
         init_tracer(cfg);
@@ -34,10 +39,5 @@ mod tests {
         tracing::info!("INFO before function");
         do_that().await;
         tracing::info!("INFO after function");
-    }
-
-    #[tracing::instrument]
-    async fn do_that() {
-        tracing::info!("within span");
     }
 }

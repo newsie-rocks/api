@@ -159,10 +159,10 @@ mod tests {
     /// Initializes a dummy [Context] for tests
     async fn init_ctx() -> Context {
         let cfg = AppConfig::load().await;
-        let db_pool = cfg.db.pool();
+        let db_pool = cfg.postgres.pool();
 
         Context {
-            auth_secret: cfg.auth.secret.clone(),
+            cfg,
             db_pool: Arc::new(db_pool),
             user: None,
         }
