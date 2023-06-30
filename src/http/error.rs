@@ -88,10 +88,10 @@ impl From<svc::auth::AuthError> for HttpError {
     fn from(value: svc::auth::AuthError) -> Self {
         match value {
             svc::auth::AuthError::InvalidToken { message } => {
-                HttpError::new(HttpErrorKind::InvalidRequest, message, None)
+                HttpError::new(HttpErrorKind::Unauthorized, message, None)
             }
             svc::auth::AuthError::UserNotFound { message } => {
-                HttpError::new(HttpErrorKind::InvalidRequest, message, None)
+                HttpError::new(HttpErrorKind::Unauthorized, message, None)
             }
             svc::auth::AuthError::Unauthorized { message } => {
                 HttpError::new(HttpErrorKind::InvalidRequest, message, None)

@@ -2,15 +2,16 @@
 
 use argon2::{password_hash, PasswordHasher, PasswordVerifier};
 use serde::{Deserialize, Serialize};
+use uuid::Uuid;
 
 use super::Context;
 
 /// User
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 #[cfg_attr(feature = "docgen", derive(utoipa::ToSchema))]
 pub struct User {
     /// ID
-    pub id: i32,
+    pub id: Uuid,
     /// Name
     pub name: String,
     /// Email
@@ -36,7 +37,7 @@ pub struct NewUser {
 #[derive(Debug)]
 pub struct UserFields {
     /// ID
-    pub id: i32,
+    pub id: Uuid,
     /// Name
     pub name: Option<String>,
     /// Email
@@ -53,7 +54,7 @@ struct AuthJwtClaims {
     /// Expiry
     exp: usize,
     /// User ID
-    user_id: i32,
+    user_id: Uuid,
 }
 
 /// Authentication service error
@@ -111,6 +112,16 @@ impl From<password_hash::Error> for AuthError {
 
 /// Creates a new [User]
 pub async fn create_user(ctx: &Context, mut new_user: NewUser) -> Result<User, AuthError> {
+    // check that the user with the email exists
+    if let Some(u) = crate::data::user::read_with_email(ctx, &new_user.email)
+        .await
+        .map_err(|err| AuthError::from(err))?
+    {
+        return Err(AuthError::Unauthorized {
+            message: format!("user with email '{email}' already exists", email = u.email),
+        });
+    };
+
     // Hash the password
     let hashed_pwd = hash_password(&new_user.password)?;
     new_user.password = hashed_pwd;
@@ -118,8 +129,8 @@ pub async fn create_user(ctx: &Context, mut new_user: NewUser) -> Result<User, A
     Ok(crate::data::user::create(ctx, new_user).await?)
 }
 
-/// Queries a user
-pub async fn read_user_with_id(ctx: &Context, user_id: i32) -> Result<Option<User>, AuthError> {
+/// Queries a user with its ID
+pub async fn read_user_with_id(ctx: &Context, user_id: Uuid) -> Result<Option<User>, AuthError> {
     crate::data::user::read(ctx, user_id)
         .await
         .map_err(|err| err.into())

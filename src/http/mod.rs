@@ -69,8 +69,8 @@ pub async fn app_handler(
         (&Method::GET, "/up") => healthcheck(ctx, req).await,
         // AUTH
         (&Method::POST, "/auth/signup") => self::auth::signup(ctx, req).await,
-        (&Method::POST, "/auth/login") => self::auth::handle_login(ctx, req).await,
-        (&Method::GET, "/auth/me") => self::auth::handle_get_user(ctx, req).await,
+        (&Method::POST, "/auth/login") => self::auth::login(ctx, req).await,
+        (&Method::GET, "/auth/me") => self::auth::get_user(ctx, req).await,
         // (&Method::PATCH, "/auth/me") => self::auth::handle_update_user(ctx, req).await,
         // (&Method::DELETE, "/auth/me") => self::auth::handle_delete_user(ctx, req).await,
         // FEEDS

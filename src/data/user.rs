@@ -1,5 +1,7 @@
 //! Users
 
+use uuid::Uuid;
+
 use crate::svc::{
     auth::{NewUser, User, UserFields},
     Context,
@@ -13,7 +15,7 @@ pub async fn create_table(ctx: &Context) -> Result<(), DbError> {
 
     let stmt = "
     CREATE TABLE IF NOT EXISTS users (
-        id      SERIAL PRIMARY KEY,
+        id      UUID PRIMARY KEY,
         name    TEXT NOT NULL,
         email    TEXT NOT NULL,
         password    TEXT NOT NULL
@@ -28,14 +30,19 @@ pub async fn create_table(ctx: &Context) -> Result<(), DbError> {
 pub async fn create(ctx: &Context, new_user: NewUser) -> Result<User, DbError> {
     let client = ctx.db_pool.get().await?;
 
-    let stmt = "INSERT into users (name, email, password) VALUES($1, $2, $3) RETURNING id";
+    let id = Uuid::new_v4();
+
+    let stmt = "INSERT into users (id, name, email, password) VALUES($1, $2, $3, $4) RETURNING id";
     let rows = client
-        .query(stmt, &[&new_user.name, &new_user.email, &new_user.password])
+        .query(
+            stmt,
+            &[&id, &new_user.name, &new_user.email, &new_user.password],
+        )
         .await?;
 
     match rows.first() {
         Some(row) => {
-            let id = row.get::<_, i32>("id");
+            let id = row.get::<_, Uuid>("id");
 
             let user = User {
                 id,
@@ -52,14 +59,36 @@ pub async fn create(ctx: &Context, new_user: NewUser) -> Result<User, DbError> {
 }
 
 /// Reads a user with its id
-pub async fn read(ctx: &Context, id: i32) -> Result<Option<User>, DbError> {
+pub async fn read(ctx: &Context, id: Uuid) -> Result<Option<User>, DbError> {
     let client = ctx.db_pool.get().await?;
 
     let stmt = "SELECT * FROM users WHERE id = $1";
     let rows = client.query(stmt, &[&id]).await?;
 
     Ok(rows.first().map(|row| {
-        let id = row.get::<_, i32>("id");
+        let id = row.get::<_, Uuid>("id");
+        let name = row.get::<_, String>("name");
+        let email = row.get::<_, String>("email");
+        let password = row.get::<_, String>("password");
+
+        User {
+            id,
+            name,
+            email,
+            password,
+        }
+    }))
+}
+
+/// Reads a user with its email
+pub async fn read_with_email(ctx: &Context, email: &str) -> Result<Option<User>, DbError> {
+    let client = ctx.db_pool.get().await?;
+
+    let stmt = "SELECT * FROM users WHERE email = $1";
+    let rows = client.query(stmt, &[&email]).await?;
+
+    Ok(rows.first().map(|row| {
+        let id = row.get::<_, Uuid>("id");
         let name = row.get::<_, String>("name");
         let email = row.get::<_, String>("email");
         let password = row.get::<_, String>("password");
@@ -119,28 +148,6 @@ pub async fn delete(ctx: &Context, user: User) -> Result<(), DbError> {
     let _res = client.execute(stmt, &[&user.id]).await?;
 
     Ok(())
-}
-
-/// Reads a user with its email
-pub async fn read_with_email(ctx: &Context, email: &str) -> Result<Option<User>, DbError> {
-    let client = ctx.db_pool.get().await?;
-
-    let stmt = "SELECT * FROM users WHERE email = $1";
-    let rows = client.query(stmt, &[&email]).await?;
-
-    Ok(rows.first().map(|row| {
-        let id = row.get::<_, i32>("id");
-        let name = row.get::<_, String>("name");
-        let email = row.get::<_, String>("email");
-        let password = row.get::<_, String>("password");
-
-        User {
-            id,
-            name,
-            email,
-            password,
-        }
-    }))
 }
 
 #[cfg(test)]

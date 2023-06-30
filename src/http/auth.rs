@@ -7,41 +7,23 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     http::error::HttpErrorKind,
-    svc::{self, auth::NewUser, Context},
+    svc::{
+        self,
+        auth::{NewUser, User},
+        Context,
+    },
 };
 
 use super::{HttpError, HttpRequest, HttpResponse};
 
-/// Signup request body
-#[derive(Debug, Deserialize)]
-#[cfg_attr(feature = "docgen", derive(utoipa::ToSchema))]
-pub struct SignupReqBody {
-    /// Name
-    pub name: String,
-    /// Email
-    pub email: String,
-    /// Password
-    pub password: String,
-}
-
-impl From<SignupReqBody> for NewUser {
-    fn from(value: SignupReqBody) -> Self {
-        Self {
-            name: value.name,
-            email: value.email,
-            password: value.password,
-        }
-    }
-}
-
 /// Signup response body
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 #[cfg_attr(feature = "docgen", derive(utoipa::ToSchema))]
 pub struct SignupRespBody {
     /// JWT auth token
-    token: String,
+    pub token: String,
     /// User
-    user: svc::auth::User,
+    pub user: User,
 }
 
 /// Handles the signup request
@@ -49,7 +31,8 @@ pub struct SignupRespBody {
 #[cfg_attr(feature = "docgen", utoipa::path(
     get,
     path = "/auth/signup",
-    request_body = SignupRespBody,
+    security(()),
+    request_body = NewUser,
     responses(
         (status = 201, description = "User is created", body = SignupRespBody),
         (status = 401, description = "Unauthorized"),
@@ -66,7 +49,7 @@ pub async fn signup(ctx: Context, req: HttpRequest) -> Result<HttpResponse, Infa
             return Ok(http_error.response());
         }
     };
-    let new_user = match serde_json::from_slice::<SignupReqBody>(&body) {
+    let new_user = match serde_json::from_slice::<NewUser>(&body) {
         Ok(i) => i.into(),
         Err(err) => {
             let http_error = HttpError::new(HttpErrorKind::InvalidRequest, format!("{err}"), None);
@@ -104,8 +87,9 @@ pub async fn signup(ctx: Context, req: HttpRequest) -> Result<HttpResponse, Infa
 }
 
 /// Login request body
-#[derive(Debug, Deserialize)]
-struct LoginReqBody {
+#[derive(Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "docgen", derive(utoipa::ToSchema))]
+pub struct LoginReqBody {
     /// Email
     email: String,
     /// Password
@@ -113,16 +97,29 @@ struct LoginReqBody {
 }
 
 /// Login response body
-#[derive(Debug, Serialize)]
-struct LoginRespBody {
+#[derive(Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "docgen", derive(utoipa::ToSchema))]
+pub struct LoginRespBody {
     /// JWT auth token
     token: String,
     /// User
-    user: svc::auth::User,
+    user: User,
 }
 
 /// Handles the login request
-pub async fn handle_login(ctx: Context, req: HttpRequest) -> Result<HttpResponse, Infallible> {
+#[tracing::instrument(skip(ctx, req))]
+#[cfg_attr(feature = "docgen", utoipa::path(
+    get,
+    path = "/auth/login",
+    security(()),
+    request_body = LoginReqBody,
+    responses(
+        (status = 201, description = "User is logged in", body = LoginRespBody),
+        (status = 401, description = "Unauthorized"),
+        (status = 500, description = "Server error")
+    )
+))]
+pub async fn login(ctx: Context, req: HttpRequest) -> Result<HttpResponse, Infallible> {
     let body = match hyper::body::to_bytes(req.into_body()).await {
         Ok(b) => b,
         Err(err) => {
@@ -166,13 +163,26 @@ pub async fn handle_login(ctx: Context, req: HttpRequest) -> Result<HttpResponse
 
 /// Get user response body
 #[derive(Debug, Serialize)]
-struct GetUserRespBody {
+#[cfg_attr(feature = "docgen", derive(utoipa::ToSchema))]
+pub struct GetUserRespBody {
     /// User
-    user: svc::auth::User,
+    user: User,
 }
 
 /// Handles the user query
-pub async fn handle_get_user(ctx: Context, _req: HttpRequest) -> Result<HttpResponse, Infallible> {
+#[tracing::instrument(skip(ctx, _req))]
+#[cfg_attr(feature = "docgen", utoipa::path(
+    get,
+    path = "/auth/me",
+    security(("bearer" = [])),
+    request_body = LoginReqBody,
+    responses(
+        (status = 201, description = "User is logged in", body = GetUserRespBody),
+        (status = 401, description = "Unauthorized"),
+        (status = 500, description = "Server error")
+    )
+))]
+pub async fn get_user(ctx: Context, _req: HttpRequest) -> Result<HttpResponse, Infallible> {
     let user = match ctx.user {
         Some(u) => u,
         None => {
@@ -212,7 +222,7 @@ pub async fn handle_get_user(ctx: Context, _req: HttpRequest) -> Result<HttpResp
 // }
 
 /// Authentication cookie name
-const AUTH_COOKIE_NAME: &str = "auth_token";
+const AUTH_COOKIE_NAME: &str = "newsie/auth_token";
 
 /// Issues the authentication cookie
 fn issue_auth_cookie(token: &str) -> String {
