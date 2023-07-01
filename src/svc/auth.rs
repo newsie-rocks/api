@@ -22,7 +22,7 @@ pub struct User {
 }
 
 /// New user
-#[derive(Debug, Deserialize, ToSchema)]
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct NewUser {
     /// Name
     pub name: String,
@@ -33,10 +33,10 @@ pub struct NewUser {
 }
 
 /// User update
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct UserFields {
     /// ID
-    pub id: Uuid,
+    pub id: Option<Uuid>,
     /// Name
     pub name: Option<String>,
     /// Email
@@ -136,15 +136,18 @@ pub async fn read_user_with_id(ctx: &Context, user_id: Uuid) -> Result<Option<Us
 }
 
 /// Updates a user
-pub async fn update_user(ctx: &Context, mut fields: UserFields) -> Result<User, AuthError> {
+pub async fn update_user(
+    ctx: &Context,
+    user_id: Uuid,
+    mut fields: UserFields,
+) -> Result<User, AuthError> {
     // Hash the password
     if let Some(password) = fields.password.as_ref() {
         let hashed_pwd = hash_password(password)?;
         fields.password = Some(hashed_pwd);
     }
 
-    let user_id = fields.id;
-    crate::data::user::update(ctx, fields).await?;
+    crate::data::user::update(ctx, user_id, fields).await?;
     crate::data::user::read(ctx, user_id)
         .await?
         .ok_or_else(|| AuthError::UserNotFound {
@@ -153,8 +156,8 @@ pub async fn update_user(ctx: &Context, mut fields: UserFields) -> Result<User, 
 }
 
 /// Deletes a user
-pub async fn delete_user(ctx: &Context, user: User) -> Result<(), AuthError> {
-    crate::data::user::delete(ctx, user)
+pub async fn delete_user(ctx: &Context, user_id: Uuid) -> Result<(), AuthError> {
+    crate::data::user::delete(ctx, user_id)
         .await
         .map_err(|err| err.into())
 }
@@ -239,6 +242,11 @@ mod tests {
 
     use std::sync::Arc;
 
+    use fake::{
+        faker::{internet::en::FreeEmail, name::en::Name},
+        Fake,
+    };
+
     use crate::{
         config::AppConfig,
         svc::{
@@ -247,80 +255,70 @@ mod tests {
         },
     };
 
-    /// Initializes a dummy [Context] for tests
+    /// Initializes the test context
     async fn init_ctx() -> Context {
         let cfg = AppConfig::load().await;
         let postgres_pool = cfg.postgres.pool();
         let qdrant_client = Arc::new(cfg.qdrant.client().unwrap());
 
-        Context {
+        // init the Context without the user
+        let mut ctx = Context {
             auth_secret: "dummy".to_string(),
             postgres_pool,
             qdrant_client,
             user: None,
-        }
-    }
-
-    #[tokio::test]
-    async fn create_user() {
-        let ctx = init_ctx().await;
-
-        let input = NewUser {
-            name: "test_user".to_string(),
-            email: "test@nicklabs.io".to_string(),
-            password: "dummy".to_string(),
         };
-        let user = super::create_user(&ctx, input).await.unwrap();
 
-        assert_eq!(user.name, "test_user".to_string())
+        // create a user
+        let name: String = Name().fake();
+        let email: String = FreeEmail().fake();
+        let user = super::create_user(
+            &ctx,
+            NewUser {
+                name,
+                email,
+                password: "dummy".to_string(),
+            },
+        )
+        .await
+        .unwrap();
+        ctx.user = Some(user);
+
+        ctx
     }
 
     #[tokio::test]
     async fn update_user() {
         let ctx = init_ctx().await;
 
-        let input = NewUser {
-            name: "test_user".to_string(),
-            email: "test@nicklabs.io".to_string(),
-            password: "dummy".to_string(),
-        };
-        let user = super::create_user(&ctx, input).await.unwrap();
-
-        let fields = UserFields {
-            id: user.id,
-            name: Some("albert".to_string()),
-            email: None,
-            password: None,
-        };
-        let updated_user = super::update_user(&ctx, fields).await.unwrap();
-        assert_eq!(updated_user.name, "albert".to_string());
+        let updated_user = super::update_user(
+            &ctx,
+            ctx.user.as_ref().unwrap().id,
+            UserFields {
+                id: None,
+                name: Some("__test__update".to_string()),
+                email: None,
+                password: None,
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(updated_user.name, "__test__update".to_string());
     }
 
     #[tokio::test]
     async fn delete_user() {
         let ctx = init_ctx().await;
-
-        let input = NewUser {
-            name: "test_user".to_string(),
-            email: "test@nicklabs.io".to_string(),
-            password: "dummy".to_string(),
-        };
-        let user = super::create_user(&ctx, input).await.unwrap();
-
-        super::delete_user(&ctx, user).await.unwrap();
+        super::delete_user(&ctx, ctx.user.as_ref().unwrap().id)
+            .await
+            .unwrap();
     }
 
     #[tokio::test]
     async fn issue_token() {
         let ctx: Context = init_ctx().await;
 
-        let input = NewUser {
-            name: "test_user".to_string(),
-            email: "test@nicklabs.io".to_string(),
-            password: "dummy".to_string(),
-        };
-        let user = super::create_user(&ctx, input).await.unwrap();
-
+        let user = ctx.user.as_ref().unwrap();
         let token = super::issue_user_token(&ctx, &user).unwrap();
 
         let db_user = super::read_user_with_token(&ctx, &token)

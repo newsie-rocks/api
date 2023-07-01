@@ -57,10 +57,11 @@ pub async fn add_context(req: &mut Request, depot: &mut Depot) -> Result<(), Htt
 /// Extract the user from the request
 async fn extract_user(ctx: &mut Context, req: &Request) -> Result<(), HttpError> {
     // Extract the auth token from the AUTHORIZATION header
-    let mut token = match req.headers().get(AUTHORIZATION) {
-        Some(v) => match v.to_str() {
-            Ok(s) => match s.strip_prefix("Bearer") {
-                Some(s) => Some(s.to_string()),
+    let mut token = None;
+    if let Some(v) = req.headers().get(AUTHORIZATION) {
+        match v.to_str() {
+            Ok(s) => match s.strip_prefix("Bearer ") {
+                Some(s) => token = Some(s.to_string()),
                 None => {
                     return Err(HttpError::BadRequest(
                         "Invalid authorization header".to_string(),
@@ -74,9 +75,8 @@ async fn extract_user(ctx: &mut Context, req: &Request) -> Result<(), HttpError>
                     Some(err.to_string()),
                 ))
             }
-        },
-        None => None,
-    };
+        }
+    }
 
     // If undefined, try extracting the token from the cookie
     if token.is_none() {

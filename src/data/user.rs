@@ -103,12 +103,12 @@ pub async fn read_with_email(ctx: &Context, email: &str) -> Result<Option<User>,
 }
 
 /// Update a user
-pub async fn update(ctx: &Context, fields: UserFields) -> Result<(), DbError> {
+pub async fn update(ctx: &Context, id: Uuid, fields: UserFields) -> Result<(), DbError> {
     let client = ctx.postgres_pool.get().await?;
 
     let mut stmt_cols = String::new();
     let mut params: Vec<&(dyn tokio_postgres::types::ToSql + Sync)> = vec![];
-    params.push(&fields.id);
+    params.push(&id);
 
     let mut i = 1;
     if let Some(name) = fields.name.as_ref() {
@@ -141,11 +141,11 @@ pub async fn update(ctx: &Context, fields: UserFields) -> Result<(), DbError> {
 }
 
 /// Delete a user
-pub async fn delete(ctx: &Context, user: User) -> Result<(), DbError> {
+pub async fn delete(ctx: &Context, id: Uuid) -> Result<(), DbError> {
     let client = ctx.postgres_pool.get().await?;
 
     let stmt = "DELETE FROM users WHERE id=$1";
-    let _res = client.execute(stmt, &[&user.id]).await?;
+    let _res = client.execute(stmt, &[&id]).await?;
 
     Ok(())
 }
@@ -217,12 +217,16 @@ mod tests {
     async fn read_with_email() {
         let ctx = init_ctx().await;
 
-        let new_user_input = NewUser {
-            name: "test_user".to_string(),
-            email: "test@nicklabs.io".to_string(),
-            password: "dummy".to_string(),
-        };
-        let new_user = super::create(&ctx, new_user_input).await.unwrap();
+        let new_user = super::create(
+            &ctx,
+            NewUser {
+                name: "test_user".to_string(),
+                email: "test@nicklabs.io".to_string(),
+                password: "dummy".to_string(),
+            },
+        )
+        .await
+        .unwrap();
 
         let user = super::read_with_email(&ctx, new_user.email.as_str())
             .await
@@ -234,20 +238,29 @@ mod tests {
     async fn update() {
         let ctx = init_ctx().await;
 
-        let new_user_input = NewUser {
-            name: "test_user_update".to_string(),
-            email: "test@nicklabs.io".to_string(),
-            password: "dummy".to_string(),
-        };
-        let new_user = super::create(&ctx, new_user_input).await.unwrap();
+        let new_user = super::create(
+            &ctx,
+            NewUser {
+                name: "test_user_update".to_string(),
+                email: "test@nicklabs.io".to_string(),
+                password: "dummy".to_string(),
+            },
+        )
+        .await
+        .unwrap();
 
-        let fields = UserFields {
-            id: new_user.id,
-            name: Some("test_user_update_new_name".to_string()),
-            email: None,
-            password: None,
-        };
-        super::update(&ctx, fields).await.unwrap();
+        super::update(
+            &ctx,
+            new_user.id,
+            UserFields {
+                id: None,
+                name: Some("test_user_update_new_name".to_string()),
+                email: None,
+                password: None,
+            },
+        )
+        .await
+        .unwrap();
     }
 
     #[tokio::test]
@@ -261,6 +274,6 @@ mod tests {
         };
         let new_user = super::create(&ctx, new_user_input).await.unwrap();
 
-        super::delete(&ctx, new_user).await.unwrap();
+        super::delete(&ctx, new_user.id).await.unwrap();
     }
 }

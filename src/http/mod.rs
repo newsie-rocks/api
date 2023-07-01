@@ -1,6 +1,7 @@
 //! Handlers
 
 use salvo::prelude::*;
+use tracing::trace;
 
 pub mod auth;
 pub mod error;
@@ -30,7 +31,7 @@ pub fn get_router() -> Router {
 #[endpoint]
 #[tracing::instrument(skip_all)]
 pub async fn root() -> &'static str {
-    tracing::trace!("root");
+    trace!("root");
     "Api service"
 }
 
@@ -38,6 +39,33 @@ pub async fn root() -> &'static str {
 #[endpoint]
 #[tracing::instrument(skip_all)]
 pub async fn healthcheck() -> &'static str {
-    tracing::trace!("healthcheck");
+    trace!("healthcheck");
     "API is up"
+}
+
+#[cfg(test)]
+mod tests {
+    use salvo::test::TestClient;
+
+    use super::*;
+
+    #[tokio::test]
+    async fn test_root() {
+        let router = get_router();
+        let service = Service::new(router);
+        let res = TestClient::get("http://localhost:3000")
+            .send(&service)
+            .await;
+        assert_eq!(res.status_code.unwrap(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn test_healthcheck() {
+        let router = get_router();
+        let service = Service::new(router);
+        let res = TestClient::get("http://localhost:3000/up")
+            .send(&service)
+            .await;
+        assert_eq!(res.status_code.unwrap(), StatusCode::OK);
+    }
 }

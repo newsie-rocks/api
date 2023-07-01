@@ -35,3 +35,8 @@ pub async fn start_server() -> Result<(), Box<dyn std::error::Error + Send + Syn
     println!("Listening on http://{}", addr);
     Ok(Server::new(acceptor).serve(router).await)
 }
+
+#[cfg(test)]
+mod tests {
+    //
+}

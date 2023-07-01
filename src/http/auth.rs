@@ -3,12 +3,13 @@
 use cookie::Cookie;
 use salvo::{oapi::extract::*, prelude::*};
 use serde::{Deserialize, Serialize};
+use tracing::trace;
 
 use crate::{
     http::error::HttpError,
     svc::{
         self,
-        auth::{NewUser, User},
+        auth::{NewUser, User, UserFields},
         Context,
     },
 };
@@ -43,7 +44,7 @@ pub async fn signup(
     res: &mut Response,
     body: JsonBody<NewUser>,
 ) -> Result<Json<SignupRespBody>, HttpError> {
-    tracing::trace!("receiving request");
+    trace!("receiving request");
 
     let new_user = body.into_inner();
 
@@ -55,10 +56,6 @@ pub async fn signup(
 
     res.status_code(StatusCode::CREATED);
     res.add_cookie(auth_cookie.clone());
-    // res.render(Json(SignupRespBody {
-    //     token: token.clone(),
-    //     user,
-    // }));
 
     Ok(Json(SignupRespBody {
         token: token.clone(),
@@ -70,9 +67,9 @@ pub async fn signup(
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct LoginReqBody {
     /// Email
-    email: String,
+    pub email: String,
     /// Password
-    password: String,
+    pub password: String,
 }
 
 /// Login response body
@@ -110,16 +107,16 @@ pub async fn login(
 }
 
 /// Get user response body
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct GetUserRespBody {
     /// User
     user: User,
 }
 
-/// Handles the user query
-#[handler]
+/// Fetches the current user
+#[endpoint]
 #[tracing::instrument(skip_all)]
-pub async fn get_user(depot: &mut Depot, res: &mut Response) -> Result<(), HttpError> {
+pub async fn get_user(depot: &mut Depot) -> Result<Json<GetUserRespBody>, HttpError> {
     let ctx = depot.obtain::<Context>().unwrap();
 
     let user = match &ctx.user {
@@ -132,23 +129,110 @@ pub async fn get_user(depot: &mut Depot, res: &mut Response) -> Result<(), HttpE
         }
     };
 
-    res.render(Json(GetUserRespBody { user }));
-
-    Ok(())
+    Ok(Json(GetUserRespBody { user }))
 }
 
-// /// Handles the user update
-// pub async fn handle_update_user(
-//     _ctx: Context,
-//     _req: HttpRequest,
-// ) -> Result<HttpResponse, hyper::Error> {
-//     todo!("PATCH /me");
-// }
+/// Updates the current user
+#[endpoint]
+#[tracing::instrument(skip_all)]
+pub async fn update_user(
+    depot: &mut Depot,
+    body: JsonBody<UserFields>,
+) -> Result<Json<GetUserRespBody>, HttpError> {
+    let ctx = depot.obtain::<Context>().unwrap();
 
-// /// Handles the user deletion
-// pub async fn handle_delete_user(
-//     _ctx: Context,
-//     _req: HttpRequest,
-// ) -> Result<HttpResponse, hyper::Error> {
-//     todo!("DELETE /me");
-// }
+    let user_id = match &ctx.user {
+        Some(u) => u.id,
+        None => {
+            return Err(HttpError::Unauthorized(
+                "not authenticated".to_string(),
+                None,
+            ));
+        }
+    };
+    let user = crate::svc::auth::update_user(&ctx, user_id, body.into_inner()).await?;
+
+    Ok(Json(GetUserRespBody { user }))
+}
+
+#[cfg(test)]
+mod tests {
+    use fake::{
+        faker::{internet::en::FreeEmail, name::en::Name},
+        Fake,
+    };
+    use salvo::{
+        hyper::header::AUTHORIZATION,
+        test::{ResponseExt, TestClient},
+        Service,
+    };
+    use tokio::sync::OnceCell;
+
+    use crate::{
+        config::AppConfig,
+        http::get_router,
+        svc::auth::{NewUser, User},
+    };
+
+    use super::*;
+
+    /// New user for tests
+    static NEW_USER: OnceCell<(User, String)> = OnceCell::const_new();
+
+    /// Initializes a new user
+    async fn init_user() -> &'static (User, String) {
+        NEW_USER
+            .get_or_init(|| async {
+                // inti tracer
+                let cfg = AppConfig::load().await;
+                crate::trace::init_tracer(cfg);
+
+                let router = get_router();
+                let service = Service::new(router);
+
+                let name: String = Name().fake();
+                let email: String = FreeEmail().fake();
+                let mut res = TestClient::post("http://localhost:3000/auth/signup")
+                    .json(&NewUser {
+                        name,
+                        email,
+                        password: "1234".to_string(),
+                    })
+                    .send(&service)
+                    .await;
+
+                let body = res.take_json::<SignupRespBody>().await.unwrap();
+                (body.user, body.token)
+            })
+            .await
+    }
+
+    #[tokio::test]
+    async fn test_login() {
+        let router = get_router();
+        let service = Service::new(router);
+
+        let (user, _) = init_user().await;
+        let res = TestClient::post("http://localhost:3000/auth/login")
+            .json(&LoginReqBody {
+                email: user.email.clone(),
+                password: "1234".to_string(),
+            })
+            .send(&service)
+            .await;
+        assert_eq!(res.status_code.unwrap(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn test_me_get() {
+        let router = get_router();
+        let service = Service::new(router);
+
+        let (_, token) = init_user().await;
+        let res = TestClient::get("http://localhost:3000/auth/me")
+            .add_header(AUTHORIZATION, format!("Bearer {token}"), true)
+            .send(&service)
+            .await;
+        assert_eq!(res.status_code.unwrap(), StatusCode::OK);
+    }
+}
