@@ -11,7 +11,7 @@ use super::DbError;
 
 /// Creates the `users` table
 pub async fn create_table(ctx: &Context) -> Result<(), DbError> {
-    let client = ctx.db_pool.get().await?;
+    let client = ctx.postgres_pool.get().await?;
 
     let stmt = "
     CREATE TABLE IF NOT EXISTS users (
@@ -28,7 +28,7 @@ pub async fn create_table(ctx: &Context) -> Result<(), DbError> {
 ///
 /// A new user is created and its ID is populated
 pub async fn create(ctx: &Context, new_user: NewUser) -> Result<User, DbError> {
-    let client = ctx.db_pool.get().await?;
+    let client = ctx.postgres_pool.get().await?;
 
     let id = Uuid::new_v4();
 
@@ -60,7 +60,7 @@ pub async fn create(ctx: &Context, new_user: NewUser) -> Result<User, DbError> {
 
 /// Reads a user with its id
 pub async fn read(ctx: &Context, id: Uuid) -> Result<Option<User>, DbError> {
-    let client = ctx.db_pool.get().await?;
+    let client = ctx.postgres_pool.get().await?;
 
     let stmt = "SELECT * FROM users WHERE id = $1";
     let rows = client.query(stmt, &[&id]).await?;
@@ -82,7 +82,7 @@ pub async fn read(ctx: &Context, id: Uuid) -> Result<Option<User>, DbError> {
 
 /// Reads a user with its email
 pub async fn read_with_email(ctx: &Context, email: &str) -> Result<Option<User>, DbError> {
-    let client = ctx.db_pool.get().await?;
+    let client = ctx.postgres_pool.get().await?;
 
     let stmt = "SELECT * FROM users WHERE email = $1";
     let rows = client.query(stmt, &[&email]).await?;
@@ -104,7 +104,7 @@ pub async fn read_with_email(ctx: &Context, email: &str) -> Result<Option<User>,
 
 /// Update a user
 pub async fn update(ctx: &Context, fields: UserFields) -> Result<(), DbError> {
-    let client = ctx.db_pool.get().await?;
+    let client = ctx.postgres_pool.get().await?;
 
     let mut stmt_cols = String::new();
     let mut params: Vec<&(dyn tokio_postgres::types::ToSql + Sync)> = vec![];
@@ -142,7 +142,7 @@ pub async fn update(ctx: &Context, fields: UserFields) -> Result<(), DbError> {
 
 /// Delete a user
 pub async fn delete(ctx: &Context, user: User) -> Result<(), DbError> {
-    let client = ctx.db_pool.get().await?;
+    let client = ctx.postgres_pool.get().await?;
 
     let stmt = "DELETE FROM users WHERE id=$1";
     let _res = client.execute(stmt, &[&user.id]).await?;
@@ -166,11 +166,13 @@ mod tests {
     /// Initializes a dummy [Context] for tests
     async fn init_ctx() -> Context {
         let cfg = AppConfig::load().await;
-        let db_pool = cfg.postgres.pool();
+        let postgres_pool = cfg.postgres.pool();
+        let qdrant_client = Arc::new(cfg.qdrant.client().unwrap());
 
         Context {
-            cfg,
-            db_pool: Arc::new(db_pool),
+            auth_secret: "dummy".to_string(),
+            postgres_pool,
+            qdrant_client,
             user: None,
         }
     }
@@ -186,12 +188,12 @@ mod tests {
     async fn create_user() {
         let ctx = init_ctx().await;
 
-        let input = NewUser {
+        let new_user = NewUser {
             name: "test_user".to_string(),
             email: "test@nicklabs.io".to_string(),
             password: "dummy".to_string(),
         };
-        let user = super::create(&ctx, input).await.unwrap();
+        let user = super::create(&ctx, new_user).await.unwrap();
 
         assert_eq!(user.name, "test_user".to_string())
     }
@@ -200,12 +202,12 @@ mod tests {
     async fn read_with_id() {
         let ctx = init_ctx().await;
 
-        let new_user_input = NewUser {
+        let new_user = NewUser {
             name: "test_user".to_string(),
             email: "test@nicklabs.io".to_string(),
             password: "dummy".to_string(),
         };
-        let new_user = super::create(&ctx, new_user_input).await.unwrap();
+        let new_user = super::create(&ctx, new_user).await.unwrap();
 
         let user = super::read(&ctx, new_user.id).await.unwrap();
         assert_eq!(user.unwrap().id, new_user.id);

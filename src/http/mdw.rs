@@ -1,62 +1,78 @@
 //! Middlewares
 
-use crate::svc::{self, Context};
+use std::sync::Arc;
 
-use super::HttpRequest;
+use crate::{
+    config::AppConfig,
+    svc::{self, Context},
+};
 
-/// Middleware error
-#[derive(Debug, thiserror::Error)]
-pub enum MdwError {
-    /// Bad request
-    #[error("Bad request: {message}")]
-    InvalidReq {
-        /// Message
-        message: String,
-    },
-    /// Unauthorized
-    #[error("Unauthorized: {message}")]
-    Unauthorized {
-        /// Message
-        message: String,
-    },
-    /// Internal server error
-    #[error("Server error")]
-    Internal {
-        /// Message
-        message: String,
-    },
+use qdrant_client::prelude::QdrantClient;
+use salvo::{hyper::header::AUTHORIZATION, prelude::*};
+use tokio::sync::OnceCell;
+
+use super::{auth::AUTH_COOKIE_NAME, error::HttpError};
+
+/// PostGres pool global instance
+static POSTGRES_POOL: OnceCell<deadpool_postgres::Pool> = OnceCell::const_new();
+
+/// Qdrant client global instance
+static QDRANT_CLIENT: OnceCell<Arc<QdrantClient>> = OnceCell::const_new();
+
+/// Middleware to add the context
+#[handler]
+pub async fn add_context(req: &mut Request, depot: &mut Depot) -> Result<(), HttpError> {
+    let cfg = AppConfig::load().await;
+
+    // add the PostGres pool
+    let postgres_pool = POSTGRES_POOL
+        .get_or_init(|| async { cfg.postgres.pool() })
+        .await;
+
+    // add the Qddrant client
+    let qdrant_client = QDRANT_CLIENT
+        .get_or_init(|| async {
+            let client = cfg.qdrant.client().unwrap();
+            Arc::new(client)
+        })
+        .await;
+
+    // set the context
+    let mut ctx = Context {
+        auth_secret: cfg.auth.secret.clone(),
+        postgres_pool: postgres_pool.clone(),
+        qdrant_client: qdrant_client.clone(),
+        user: None,
+    };
+
+    // add the user
+    extract_user(&mut ctx, req).await?;
+
+    // inject the context
+    depot.inject(ctx);
+
+    Ok(())
 }
 
-impl From<svc::auth::AuthError> for MdwError {
-    fn from(value: svc::auth::AuthError) -> Self {
-        match value {
-            svc::auth::AuthError::InvalidToken { message } => Self::Unauthorized { message },
-            svc::auth::AuthError::UserNotFound { message } => Self::Unauthorized { message },
-            svc::auth::AuthError::Unauthorized { message } => Self::Unauthorized { message },
-            svc::auth::AuthError::Internal { message } => Self::Internal { message },
-        }
-    }
-}
-
-/// Extracts the authenticated user, and populated the [Context]
-///
-/// This is based on the "Bearer" token in the header.
-pub async fn extract_user(ctx: &mut Context, req: &HttpRequest) -> Result<(), MdwError> {
+/// Extract the user from the request
+async fn extract_user(ctx: &mut Context, req: &Request) -> Result<(), HttpError> {
     // Extract the auth token from the AUTHORIZATION header
-    let mut token = match req.headers().get(hyper::header::AUTHORIZATION) {
+    let mut token = match req.headers().get(AUTHORIZATION) {
         Some(v) => match v.to_str() {
             Ok(s) => match s.strip_prefix("Bearer") {
                 Some(s) => Some(s.to_string()),
                 None => {
-                    return Err(MdwError::InvalidReq {
-                        message: "Invalid authorization header".to_string(),
-                    })
+                    return Err(HttpError::BadRequest(
+                        "Invalid authorization header".to_string(),
+                        None,
+                    ))
                 }
             },
             Err(err) => {
-                return Err(MdwError::InvalidReq {
-                    message: format!("{err}"),
-                })
+                return Err(HttpError::BadRequest(
+                    "Invalid authorization header".to_string(),
+                    Some(err.to_string()),
+                ))
             }
         },
         None => None,
@@ -64,20 +80,16 @@ pub async fn extract_user(ctx: &mut Context, req: &HttpRequest) -> Result<(), Md
 
     // If undefined, try extracting the token from the cookie
     if token.is_none() {
-        match super::auth::parse_auth_cookie(req) {
-            Ok(cookie_auth_token) => token = cookie_auth_token,
-            Err(err) => {
-                return Err(MdwError::InvalidReq {
-                    message: format!("{err}"),
-                })
-            }
+        if let Some(cookie) = req.cookie(AUTH_COOKIE_NAME) {
+            token = Some(cookie.value().to_string());
         };
     }
 
-    // Return if non token
+    // Read the user and populate the context
     if let Some(t) = token {
         let user = svc::auth::read_user_with_token(ctx, t.as_str()).await?;
         ctx.user = user;
     }
+
     Ok(())
 }

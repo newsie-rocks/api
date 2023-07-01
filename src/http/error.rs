@@ -1,86 +1,113 @@
 //! HTTP error handling
 
-use hyper::{header::CONTENT_TYPE, Body, StatusCode};
+use salvo::prelude::*;
 use serde::Serialize;
 
 use crate::svc;
 
-use super::{mdw::MdwError, HttpResponse};
-
-/// HTTP error kind
-#[derive(Debug, Serialize)]
-pub enum HttpErrorKind {
-    /// Invalid client request
-    InvalidRequest,
-    /// Unauthoprized
-    Unauthorized,
-    /// Internal server error
-    Internal,
-}
-
 /// HTTP API error
 #[derive(Debug, thiserror::Error, Serialize)]
-#[error("{kind:?}:{message:?}")]
-pub struct HttpError {
-    /// Type
-    pub kind: HttpErrorKind,
-    /// Message
-    pub message: String,
-    /// Details
-    pub details: Option<String>,
+
+pub enum HttpError {
+    /// Invalid client request
+    #[error("INVALID_REQUEST:{0}")]
+    BadRequest(String, Option<String>),
+    /// Unauthorized
+    #[error("UNAUTHORIZED:{0}")]
+    Unauthorized(String, Option<String>),
+    /// Internal server error
+    #[error("INTERNAL:{0}")]
+    Internal(String, Option<String>),
 }
 
 impl HttpError {
-    /// Instantiates a new [HttpError]
-    pub fn new(kind: HttpErrorKind, message: String, details: Option<String>) -> Self {
-        Self {
-            kind,
-            message,
-            details,
+    /// Returns the error code
+    fn code(&self) -> String {
+        match self {
+            HttpError::BadRequest(_, _) => "INVALID_REQUEST".into(),
+            HttpError::Unauthorized(_, _) => "UNAUTHORIZED".into(),
+            HttpError::Internal(_, _) => "INTERNAL".into(),
         }
     }
 
-    /// Returns the HTTP status code
-    pub fn status(self) -> StatusCode {
-        match &self.kind {
-            HttpErrorKind::InvalidRequest => StatusCode::BAD_REQUEST,
-            HttpErrorKind::Unauthorized => StatusCode::UNAUTHORIZED,
-            HttpErrorKind::Internal => StatusCode::INTERNAL_SERVER_ERROR,
+    /// Returns the status code
+    fn status_code(&self) -> StatusCode {
+        match self {
+            HttpError::BadRequest(_, _) => StatusCode::BAD_REQUEST,
+            HttpError::Unauthorized(_, _) => StatusCode::UNAUTHORIZED,
+            HttpError::Internal(_, _) => StatusCode::INTERNAL_SERVER_ERROR,
         }
-    }
-
-    /// Converts a [HttpError] into a HTTP response
-    pub fn response(self) -> HttpResponse {
-        let body_json = serde_json::to_string(&self).unwrap();
-        let body = Body::from(body_json);
-
-        hyper::Response::builder()
-            .status(self.status())
-            .header(CONTENT_TYPE, "application/json")
-            .body(body)
-            .unwrap()
     }
 }
 
-impl From<hyper::Error> for HttpError {
-    fn from(value: hyper::Error) -> Self {
-        HttpError::new(HttpErrorKind::Internal, format!("{value}"), None)
+/// Error response
+#[derive(Debug, Serialize, ToSchema)]
+struct ErrorResponse {
+    /// Main error
+    error: ErrorShape,
+}
+
+/// Error JSON shape
+#[derive(Debug, Serialize, ToSchema)]
+struct ErrorShape {
+    /// Code (string)
+    code: String,
+    /// Message
+    message: String,
+    /// Other details
+    detail: Option<String>,
+}
+
+#[async_trait]
+impl Writer for HttpError {
+    async fn write(mut self, _req: &mut Request, _depot: &mut Depot, res: &mut Response) {
+        let code = self.code();
+        let status_code = self.status_code();
+        let error = match self {
+            HttpError::BadRequest(message, detail) => ErrorShape {
+                code,
+                message,
+                detail,
+            },
+            HttpError::Unauthorized(message, detail) => ErrorShape {
+                code,
+                message,
+                detail,
+            },
+            HttpError::Internal(message, detail) => ErrorShape {
+                code,
+                message,
+                detail,
+            },
+        };
+        res.status_code(status_code);
+        res.render(Json(ErrorResponse { error }));
     }
 }
 
-impl From<self::MdwError> for HttpError {
-    fn from(value: self::MdwError) -> Self {
-        match value {
-            self::MdwError::InvalidReq { message } => {
-                HttpError::new(HttpErrorKind::InvalidRequest, message, None)
-            }
-            self::MdwError::Unauthorized { message } => {
-                HttpError::new(HttpErrorKind::InvalidRequest, message, None)
-            }
-            self::MdwError::Internal { message } => {
-                HttpError::new(HttpErrorKind::Internal, message, None)
-            }
-        }
+// NB: needed for OpenAPI specs
+impl EndpointOutRegister for HttpError {
+    fn register(components: &mut salvo::oapi::Components, operation: &mut salvo::oapi::Operation) {
+        let schema = ErrorResponse::to_schema(components);
+        let content = salvo::oapi::Content::new(schema);
+
+        let res = salvo::oapi::Response::new("Bad request")
+            .add_content("application/json", content.clone());
+        operation.responses.insert("400", res);
+
+        let res = salvo::oapi::Response::new("Unauthorized")
+            .add_content("application/json", content.clone());
+        operation.responses.insert("401", res);
+
+        let res = salvo::oapi::Response::new("Server error")
+            .add_content("application/json", content.clone());
+        operation.responses.insert("500", res);
+    }
+}
+
+impl From<salvo::http::ParseError> for HttpError {
+    fn from(value: salvo::http::ParseError) -> Self {
+        HttpError::BadRequest(value.to_string(), None)
     }
 }
 
@@ -88,17 +115,15 @@ impl From<svc::auth::AuthError> for HttpError {
     fn from(value: svc::auth::AuthError) -> Self {
         match value {
             svc::auth::AuthError::InvalidToken { message } => {
-                HttpError::new(HttpErrorKind::Unauthorized, message, None)
+                HttpError::Unauthorized(message, None)
             }
             svc::auth::AuthError::UserNotFound { message } => {
-                HttpError::new(HttpErrorKind::Unauthorized, message, None)
+                HttpError::Unauthorized(message, None)
             }
             svc::auth::AuthError::Unauthorized { message } => {
-                HttpError::new(HttpErrorKind::InvalidRequest, message, None)
+                HttpError::Unauthorized(message, None)
             }
-            svc::auth::AuthError::Internal { message } => {
-                HttpError::new(HttpErrorKind::Internal, message, None)
-            }
+            svc::auth::AuthError::Internal { message } => HttpError::Internal(message, None),
         }
     }
 }

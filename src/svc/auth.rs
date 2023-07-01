@@ -1,14 +1,14 @@
 //! Auth services
 
 use argon2::{password_hash, PasswordHasher, PasswordVerifier};
+use salvo::prelude::*;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use super::Context;
 
 /// User
-#[derive(Debug, Serialize, Deserialize)]
-#[cfg_attr(feature = "docgen", derive(utoipa::ToSchema))]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct User {
     /// ID
     pub id: Uuid,
@@ -22,8 +22,7 @@ pub struct User {
 }
 
 /// New user
-#[derive(Debug, Deserialize)]
-#[cfg_attr(feature = "docgen", derive(utoipa::ToSchema))]
+#[derive(Debug, Deserialize, ToSchema)]
 pub struct NewUser {
     /// Name
     pub name: String,
@@ -193,7 +192,7 @@ pub fn issue_user_token(ctx: &Context, user: &User) -> Result<String, AuthError>
     match jsonwebtoken::encode(
         &jsonwebtoken::Header::default(),
         &claims,
-        &jsonwebtoken::EncodingKey::from_secret(ctx.cfg.auth.secret.as_ref()),
+        &jsonwebtoken::EncodingKey::from_secret(ctx.auth_secret.as_bytes()),
     ) {
         Ok(t) => Ok(t),
         Err(err) => Err(err.into()),
@@ -205,7 +204,7 @@ pub async fn read_user_with_token(ctx: &Context, token: &str) -> Result<Option<U
     // Decode the token
     let claims = match jsonwebtoken::decode::<AuthJwtClaims>(
         token,
-        &jsonwebtoken::DecodingKey::from_secret(ctx.cfg.auth.secret.as_ref()),
+        &jsonwebtoken::DecodingKey::from_secret(ctx.auth_secret.as_bytes()),
         &jsonwebtoken::Validation::default(),
     ) {
         Ok(data) => data.claims,
@@ -251,11 +250,13 @@ mod tests {
     /// Initializes a dummy [Context] for tests
     async fn init_ctx() -> Context {
         let cfg = AppConfig::load().await;
-        let db_pool = cfg.postgres.pool();
+        let postgres_pool = cfg.postgres.pool();
+        let qdrant_client = Arc::new(cfg.qdrant.client().unwrap());
 
         Context {
-            cfg,
-            db_pool: Arc::new(db_pool),
+            auth_secret: "dummy".to_string(),
+            postgres_pool,
+            qdrant_client,
             user: None,
         }
     }

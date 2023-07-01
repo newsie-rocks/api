@@ -1,19 +1,22 @@
-//! Client tests
+use api::http::get_router;
+use salvo::{prelude::*, test::TestClient};
 
 #[tokio::test]
 async fn test_root() {
-    let client = hyper::Client::new();
-    let uri = hyper::Uri::from_static("http://localhost:3000");
-
-    let res = client.get(uri).await.unwrap();
-    assert_eq!(res.status(), hyper::StatusCode::OK)
+    let router = get_router();
+    let service = Service::new(router);
+    let res = TestClient::get("http://localhost:3000")
+        .send(&service)
+        .await;
+    assert_eq!(res.status_code.unwrap(), StatusCode::OK);
 }
 
 #[tokio::test]
 async fn test_healthcheck() {
-    let client = hyper::Client::new();
-    let uri = hyper::Uri::from_static("http://localhost:3000/up");
-
-    let res = client.get(uri).await.unwrap();
-    assert_eq!(res.status(), hyper::StatusCode::OK)
+    let router = get_router();
+    let service = Service::new(router);
+    let res = TestClient::get("http://localhost:3000/up")
+        .send(&service)
+        .await;
+    assert_eq!(res.status_code.unwrap(), StatusCode::OK);
 }
