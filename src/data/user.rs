@@ -7,7 +7,7 @@ use crate::svc::{
     Context,
 };
 
-use super::DbError;
+use super::error::DbError;
 
 /// Creates the `users` table
 pub async fn create_table(ctx: &Context) -> Result<(), DbError> {
@@ -157,6 +157,9 @@ pub async fn delete(ctx: &Context, id: Uuid) -> Result<(), DbError> {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+
+    use std::future::Future;
 
     use fake::{
         faker::{internet::en::FreeEmail, name::en::Name},
@@ -171,11 +174,15 @@ mod tests {
         },
     };
 
-    /// Initializes the tests
-    async fn init_tests() -> Context {
+    // Test runner to setup and cleanup a test
+    async fn run_test<F>(f: impl Fn(Context) -> F)
+    where
+        F: Future<Output = Context>,
+    {
         let cfg = AppConfig::load().await;
         let mut ctx = Context::init(cfg);
 
+        // create dummy user
         let name: String = Name().fake();
         let email: String = FreeEmail().fake();
         let user = super::create(
@@ -189,64 +196,65 @@ mod tests {
         .await
         .unwrap();
         ctx.user = Some(user);
-        ctx
+
+        // Run the test
+        let ctx = f(ctx).await;
+
+        // cleanup
+        let user_id = ctx.user.as_ref().unwrap().id;
+        delete(&ctx, user_id).await.unwrap();
     }
 
     #[tokio::test]
-    async fn create_table() {
-        let ctx = init_tests().await;
-
-        super::create_table(&ctx).await.unwrap();
+    async fn test_create_table() {
+        run_test(|ctx| async {
+            create_table(&ctx).await.unwrap();
+            ctx
+        })
+        .await;
     }
 
     #[tokio::test]
-    async fn create_user() {
-        let _ctx = init_tests().await;
+    async fn test_read_with_id() {
+        run_test(|ctx| async {
+            let user = super::read(&ctx, ctx.user.as_ref().unwrap().id)
+                .await
+                .unwrap();
+            assert_eq!(user.unwrap().id, ctx.user.as_ref().unwrap().id);
+            ctx
+        })
+        .await;
     }
 
     #[tokio::test]
-    async fn read_with_id() {
-        let ctx = init_tests().await;
+    async fn test_read_with_email() {
+        run_test(|ctx| async {
+            let user = super::read_with_email(&ctx, ctx.user.as_ref().unwrap().email.as_str())
+                .await
+                .unwrap();
+            assert_eq!(user.unwrap().email, ctx.user.as_ref().unwrap().email);
+            ctx
+        })
+        .await;
+    }
 
-        let user = super::read(&ctx, ctx.user.as_ref().unwrap().id)
+    #[tokio::test]
+    async fn test_update() {
+        run_test(|ctx| async {
+            super::update(
+                &ctx,
+                ctx.user.as_ref().unwrap().id,
+                UserFields {
+                    id: None,
+                    name: Some("test_user_update_new_name".to_string()),
+                    email: None,
+                    password: None,
+                },
+            )
             .await
             .unwrap();
-        assert_eq!(user.unwrap().id, ctx.user.unwrap().id);
-    }
-
-    #[tokio::test]
-    async fn read_with_email() {
-        let ctx = init_tests().await;
-
-        let user = super::read_with_email(&ctx, ctx.user.as_ref().unwrap().email.as_str())
-            .await
-            .unwrap();
-        assert_eq!(user.unwrap().email, ctx.user.unwrap().email);
-    }
-
-    #[tokio::test]
-    async fn update() {
-        let ctx = init_tests().await;
-
-        super::update(
-            &ctx,
-            ctx.user.as_ref().unwrap().id,
-            UserFields {
-                id: None,
-                name: Some("test_user_update_new_name".to_string()),
-                email: None,
-                password: None,
-            },
-        )
-        .await
-        .unwrap();
-    }
-
-    #[tokio::test]
-    async fn delete() {
-        let ctx = init_tests().await;
-
-        let user = ctx.user.as_ref().unwrap();
-        super::delete(&ctx, user.id).await.unwrap();
+            ctx
+        })
+        .await;
     }
 }

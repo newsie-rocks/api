@@ -13,7 +13,7 @@ The service manages:
 ## OpenAPI doc
 
 ```sh
-cargo run  --bin docgen -F docgen > doc/openapi/specs.yaml
+cargo run --bin docgen > doc/openapi.yml
 redocly preview-docs doc/openapi/specs.yaml
 ```
 

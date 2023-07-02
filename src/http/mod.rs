@@ -23,7 +23,8 @@ pub fn get_router(cfg: &AppConfig) -> Router {
         .push(
             Router::with_path("/auth/me")
                 .get(auth::get_user)
-                .patch(auth::update_user),
+                .patch(auth::update_user)
+                .delete(auth::delete_user),
         );
 
     // set the OpenAPI route
@@ -33,6 +34,12 @@ pub fn get_router(cfg: &AppConfig) -> Router {
     router
         .push(openapi.into_router("/openapi"))
         .push(SwaggerUi::new("/openapi").into_router("/openapi/ui"))
+}
+
+/// Returns the service
+pub fn get_service(cfg: &AppConfig) -> Service {
+    let router = get_router(cfg);
+    Service::new(router)
 }
 
 /// Serves the root path
@@ -53,29 +60,41 @@ pub async fn healthcheck() -> &'static str {
 
 #[cfg(test)]
 mod tests {
-    use salvo::test::TestClient;
+    use std::future::Future;
 
     use super::*;
 
+    use salvo::test::TestClient;
+
+    // Test runner to setup and cleanup a test
+    async fn run_test<F>(f: impl Fn(Service) -> F)
+    where
+        F: Future<Output = ()>,
+    {
+        let cfg = AppConfig::load().await;
+        let service = get_service(cfg);
+        f(service).await;
+    }
+
     #[tokio::test]
     async fn test_root() {
-        let cfg = AppConfig::load().await;
-        let router = get_router(cfg);
-        let service = Service::new(router);
-        let res = TestClient::get("http://localhost:3000")
-            .send(&service)
-            .await;
-        assert_eq!(res.status_code.unwrap(), StatusCode::OK);
+        run_test(|service| async move {
+            let res = TestClient::get("http://localhost:3000")
+                .send(&service)
+                .await;
+            assert_eq!(res.status_code.unwrap(), StatusCode::OK);
+        })
+        .await;
     }
 
     #[tokio::test]
     async fn test_healthcheck() {
-        let cfg = AppConfig::load().await;
-        let router = get_router(cfg);
-        let service = Service::new(router);
-        let res = TestClient::get("http://localhost:3000/up")
-            .send(&service)
-            .await;
-        assert_eq!(res.status_code.unwrap(), StatusCode::OK);
+        run_test(|service| async move {
+            let res = TestClient::get("http://localhost:3000/up")
+                .send(&service)
+                .await;
+            assert_eq!(res.status_code.unwrap(), StatusCode::OK);
+        })
+        .await;
     }
 }

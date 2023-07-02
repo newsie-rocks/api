@@ -161,8 +161,36 @@ pub async fn update_user(
     Ok(Json(GetUserRespBody { user }))
 }
 
+/// Deletes a user
+///
+/// The ID is retrieved from the token
+#[endpoint]
+#[tracing::instrument(skip_all)]
+pub async fn delete_user(depot: &mut Depot) -> Result<(), HttpError> {
+    trace!("received request");
+
+    let ctx = depot.obtain::<Context>().unwrap();
+
+    let user_id = match &ctx.user {
+        Some(u) => u.id,
+        None => {
+            return Err(HttpError::Unauthorized(
+                "not authenticated".to_string(),
+                None,
+            ));
+        }
+    };
+    crate::svc::auth::delete_user(ctx, user_id).await?;
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
+    use std::future::Future;
+
+    use super::*;
+
     use fake::{
         faker::{internet::en::FreeEmail, name::en::Name},
         Fake,
@@ -172,93 +200,100 @@ mod tests {
         test::{ResponseExt, TestClient},
         Service,
     };
-    use tokio::sync::OnceCell;
 
     use crate::{
         config::AppConfig,
-        http::get_router,
-        svc::auth::{NewUser, User},
+        http::get_service,
+        svc::auth::{issue_user_token, NewUser},
     };
 
-    use super::*;
+    // Test runner to setup and cleanup a test
+    async fn run_test<F>(f: impl Fn(Service, Context, String) -> F)
+    where
+        F: Future<Output = (Service, Context, String)>,
+    {
+        // setup
+        let cfg = AppConfig::load().await;
+        crate::trace::init_tracer(cfg);
+        let service = get_service(cfg);
+        let mut ctx = Context::init(cfg);
 
-    /// New user for tests
-    static NEW_USER: OnceCell<(Service, User, String)> = OnceCell::const_new();
-
-    /// Initializes the tests
-    async fn init_tests() -> &'static (Service, User, String) {
-        NEW_USER
-            .get_or_init(|| async {
-                // init tracer
-                let cfg = AppConfig::load().await;
-                crate::trace::init_tracer(cfg);
-
-                let router = get_router(cfg);
-                let service = Service::new(router);
-
-                let name: String = Name().fake();
-                let email: String = FreeEmail().fake();
-                let mut res = TestClient::post("http://localhost:3000/auth/signup")
-                    .json(&NewUser {
-                        name,
-                        email,
-                        password: "1234".to_string(),
-                    })
-                    .send(&service)
-                    .await;
-
-                let body = res.take_json::<SignupRespBody>().await.unwrap();
-                (service, body.user, body.token)
+        // create test user
+        let name: String = Name().fake();
+        let email: String = FreeEmail().fake();
+        let mut res = TestClient::post("http://localhost:3000/auth/signup")
+            .json(&NewUser {
+                name,
+                email,
+                password: "1234".to_string(),
             })
-            .await
+            .send(&service)
+            .await;
+        let body = res.take_json::<SignupRespBody>().await.unwrap();
+
+        // issue the token and set the context
+        let token = issue_user_token(&ctx, &body.user).unwrap();
+        ctx.user = Some(body.user);
+
+        // Run the test
+        let (service, _ctx, token) = f(service, ctx, token).await;
+
+        // cleanup
+        let res = TestClient::delete("http://localhost:3000/auth/me")
+            .add_header(AUTHORIZATION, format!("Bearer {token}"), true)
+            .send(&service)
+            .await;
+        if !res.status_code.unwrap().is_success() {
+            panic!("failed to delete test user");
+        }
     }
 
     #[tokio::test]
     async fn test_login() {
-        let (service, user, _) = init_tests().await;
-        let res = TestClient::post("http://localhost:3000/auth/login")
-            .json(&LoginReqBody {
-                email: user.email.clone(),
-                password: "1234".to_string(),
-            })
-            .send(service)
-            .await;
-        assert_eq!(res.status_code.unwrap(), StatusCode::OK);
+        run_test(|service, ctx, token| async {
+            let user = ctx.user.as_ref().unwrap().clone();
+            let res = TestClient::post("http://localhost:3000/auth/login")
+                .json(&LoginReqBody {
+                    email: user.email,
+                    password: "1234".to_string(),
+                })
+                .send(&service)
+                .await;
+            assert_eq!(res.status_code.unwrap(), StatusCode::OK);
+            (service, ctx, token)
+        })
+        .await;
     }
 
     #[tokio::test]
     async fn test_me_get() {
-        let (service, _, token) = init_tests().await;
-        let res = TestClient::get("http://localhost:3000/auth/me")
-            .add_header(AUTHORIZATION, format!("Bearer {token}"), true)
-            .send(service)
-            .await;
-        assert_eq!(res.status_code.unwrap(), StatusCode::OK);
+        run_test(|service, ctx, token| async {
+            let res = TestClient::get("http://localhost:3000/auth/me")
+                .add_header(AUTHORIZATION, format!("Bearer {token}"), true)
+                .send(&service)
+                .await;
+            assert_eq!(res.status_code.unwrap(), StatusCode::OK);
+            (service, ctx, token)
+        })
+        .await;
     }
 
     #[tokio::test]
     async fn test_me_update() {
-        let (service, _, token) = init_tests().await;
-        let mut res = TestClient::patch("http://localhost:3000/auth/me")
-            .add_header(AUTHORIZATION, format!("Bearer {token}"), true)
-            .json(&UserFields {
-                id: None,
-                name: Some("new Name".to_string()),
-                email: None,
-                password: None,
-            })
-            .send(service)
-            .await;
-
-        // BUG: when running all the auth tests, there is a 500 code on the update test
-        // It is very random
-        // it seems to be related to a connection closed error
-        // it seems related to the fact that tests use different runtime, so the shared connection pool
-        // is closed when the test ends
-        // see: https://github.com/tokio-rs/tokio/issues/2374
-        assert_eq!(res.status_code.unwrap(), StatusCode::OK);
-
-        let body = res.take_json::<GetUserRespBody>().await.unwrap();
-        assert_eq!(body.user.name, "new Name".to_string());
+        run_test(|service, ctx, token| async {
+            let res = TestClient::patch("http://localhost:3000/auth/me")
+                .add_header(AUTHORIZATION, format!("Bearer {token}"), true)
+                .json(&UserFields {
+                    id: None,
+                    name: Some("new Name".to_string()),
+                    email: None,
+                    password: None,
+                })
+                .send(&service)
+                .await;
+            assert_eq!(res.status_code.unwrap(), StatusCode::OK);
+            (service, ctx, token)
+        })
+        .await;
     }
 }

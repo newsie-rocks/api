@@ -1,11 +1,9 @@
 //! Middlewares
 
-use crate::{
-    config::AppConfig,
-    svc::{self, Context},
-};
+use crate::svc::{self, Context};
 
 use salvo::{hyper::header::AUTHORIZATION, prelude::*};
+use tracing::trace;
 
 use super::{auth::AUTH_COOKIE_NAME, error::HttpError};
 
@@ -45,12 +43,19 @@ pub async fn authenticate(req: &mut Request, depot: &mut Depot) -> Result<(), Ht
     }
 
     // Read the user and populate the context
-    if let Some(t) = token {
-        let user = svc::auth::read_user_with_token(ctx, t.as_str()).await?;
-        let cfg = AppConfig::load().await;
-        let mut new_ctx = Context::init(cfg);
-        new_ctx.user = user;
+    if let Some(token) = token {
+        trace!(token, "auth token");
+        let user = svc::auth::read_user_with_token(ctx, &token).await?;
+        trace!(?user, "auth user");
+        let new_ctx = Context {
+            auth_secret: ctx.auth_secret.clone(),
+            postgres_pool: ctx.postgres_pool.clone(),
+            qdrant_client: ctx.qdrant_client.clone(),
+            user,
+        };
         depot.inject(new_ctx);
+    } else {
+        trace!(token, "not authenticated");
     }
 
     Ok(())

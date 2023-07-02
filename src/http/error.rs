@@ -120,6 +120,9 @@ impl From<svc::auth::AuthError> for HttpError {
             svc::auth::AuthError::UserNotFound { message } => {
                 HttpError::Unauthorized(message, None)
             }
+            svc::auth::AuthError::InvalidCredentials { message } => {
+                HttpError::Unauthorized(message, None)
+            }
             svc::auth::AuthError::Unauthorized { message } => {
                 HttpError::Unauthorized(message, None)
             }

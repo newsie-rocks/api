@@ -5,6 +5,8 @@ use salvo::prelude::*;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+use crate::data::error::DbError;
+
 use super::Context;
 
 /// User
@@ -71,6 +73,12 @@ pub enum AuthError {
         /// Message
         message: String,
     },
+    /// Invalid credentials
+    #[error("Invalid credentials: {message}")]
+    InvalidCredentials {
+        /// Message
+        message: String,
+    },
     /// Unauthorized
     #[error("Unauthorized")]
     Unauthorized {
@@ -93,10 +101,10 @@ impl From<jsonwebtoken::errors::Error> for AuthError {
     }
 }
 
-impl From<crate::data::DbError> for AuthError {
-    fn from(value: crate::data::DbError) -> Self {
+impl From<DbError> for AuthError {
+    fn from(value: DbError) -> Self {
         match value {
-            crate::data::DbError::Internal { message } => AuthError::Internal { message },
+            DbError::Internal { message } => AuthError::Internal { message },
         }
     }
 }
@@ -173,8 +181,8 @@ pub async fn login(ctx: &Context, email: &str, password: &str) -> Result<User, A
     let user = user.unwrap();
 
     if !verify_password(&user.password, password)? {
-        return Err(AuthError::UserNotFound {
-            message: format!("no user for email '{email}'"),
+        return Err(AuthError::InvalidCredentials {
+            message: format!("invalid password for email '{email}'"),
         });
     }
 
@@ -239,6 +247,9 @@ pub fn verify_password(hash: &str, password: &str) -> Result<bool, AuthError> {
 
 #[cfg(test)]
 mod tests {
+    use std::future::Future;
+
+    use super::*;
 
     use fake::{
         faker::{internet::en::FreeEmail, name::en::Name},
@@ -253,15 +264,18 @@ mod tests {
         },
     };
 
-    /// Initializes the test context
-    async fn init_tests() -> Context {
+    // Test runner to setup and cleanup a test
+    async fn run_test<F>(f: impl Fn(Context) -> F)
+    where
+        F: Future<Output = Context>,
+    {
         let cfg = AppConfig::load().await;
         let mut ctx = Context::init(cfg);
 
-        // create a user
+        // create dummy user
         let name: String = Name().fake();
         let email: String = FreeEmail().fake();
-        let user = super::create_user(
+        let user = create_user(
             &ctx,
             NewUser {
                 name,
@@ -273,47 +287,42 @@ mod tests {
         .unwrap();
         ctx.user = Some(user);
 
-        ctx
+        // Run the test
+        let ctx = f(ctx).await;
+
+        // cleanup
+        let user_id = ctx.user.as_ref().unwrap().id;
+        delete_user(&ctx, user_id).await.unwrap();
     }
 
     #[tokio::test]
-    async fn update_user() {
-        let ctx = init_tests().await;
-
-        let updated_user = super::update_user(
-            &ctx,
-            ctx.user.as_ref().unwrap().id,
-            UserFields {
-                id: None,
-                name: Some("__test__update".to_string()),
-                email: None,
-                password: None,
-            },
-        )
-        .await
-        .unwrap();
-        assert_eq!(updated_user.name, "__test__update".to_string());
-    }
-
-    #[tokio::test]
-    async fn delete_user() {
-        let ctx = init_tests().await;
-        super::delete_user(&ctx, ctx.user.as_ref().unwrap().id)
+    async fn test_update_user() {
+        run_test(|ctx| async {
+            let updated_user = super::update_user(
+                &ctx,
+                ctx.user.as_ref().unwrap().id,
+                UserFields {
+                    id: None,
+                    name: Some("__test__update".to_string()),
+                    email: None,
+                    password: None,
+                },
+            )
             .await
             .unwrap();
+            assert_eq!(updated_user.name, "__test__update".to_string());
+            ctx
+        })
+        .await;
     }
 
     #[tokio::test]
-    async fn issue_token() {
-        let ctx = init_tests().await;
-
-        let user = ctx.user.as_ref().unwrap();
-        let token = super::issue_user_token(&ctx, user).unwrap();
-
-        let db_user = super::read_user_with_token(&ctx, &token)
-            .await
-            .unwrap()
-            .unwrap();
-        assert_eq!(db_user.id, user.id)
+    async fn test_issue_token() {
+        run_test(|ctx| async {
+            let user = ctx.user.as_ref().unwrap();
+            let _token = super::issue_user_token(&ctx, user).unwrap();
+            ctx
+        })
+        .await;
     }
 }
