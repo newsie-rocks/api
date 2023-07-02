@@ -697,6 +697,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "etag"
+version = "4.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4b3d0661a2ccddc26cba0b834e9b717959ed6fdd76c7129ee159c170a875bf44"
+dependencies = [
+ "str-buf",
+ "xxhash-rust",
+]
+
+[[package]]
 name = "fake"
 version = "2.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2187,6 +2197,7 @@ checksum = "c39d8b982850b656146908b46e99a19366aabdb51d4b4fb31ed3a17175acca27"
 dependencies = [
  "salvo-oapi",
  "salvo_core",
+ "salvo_extra",
 ]
 
 [[package]]
@@ -2294,6 +2305,34 @@ dependencies = [
  "tokio-stream",
  "tracing",
  "url",
+ "zstd",
+]
+
+[[package]]
+name = "salvo_extra"
+version = "0.44.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "911bd4a8f471dd7b1292845233acaedb6dd7f7b29e609cd755cfaeea695274cf"
+dependencies = [
+ "base64 0.21.2",
+ "brotli",
+ "bytes",
+ "etag",
+ "flate2",
+ "futures-util",
+ "hyper 1.0.0-rc.3",
+ "indexmap 1.9.3",
+ "jsonwebtoken",
+ "once_cell",
+ "pin-project",
+ "salvo_core",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tokio-stream",
+ "tokio-tungstenite",
+ "tokio-util",
+ "tracing",
  "zstd",
 ]
 
@@ -2539,6 +2578,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6980e8d7511241f8acf4aebddbb1ff938df5eebe98691418c4468d0b72a96a67"
 
 [[package]]
+name = "str-buf"
+version = "3.0.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e75b72ee54e2f93c3ea1354066162be893ee5e25773ab743de3e088cecbb4f31"
+
+[[package]]
 name = "stringprep"
 version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2771,6 +2816,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "tokio-tungstenite"
+version = "0.19.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ec509ac96e9a0c43427c74f003127d953a265737636129424288d27cb5c4b12c"
+dependencies = [
+ "futures-util",
+ "log",
+ "tokio",
+ "tungstenite",
+]
+
+[[package]]
 name = "tokio-util"
 version = "0.7.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2944,6 +3001,20 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3528ecfd12c466c6f163363caf2d02a71161dd5e1cc6ae7b34207ea2d42d81ed"
 
 [[package]]
+name = "tungstenite"
+version = "0.19.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "15fba1a6d6bb030745759a9a2a588bfe8490fc8b4751a277db3a0be1c9ebbf67"
+dependencies = [
+ "byteorder",
+ "bytes",
+ "log",
+ "rand 0.8.5",
+ "thiserror",
+ "utf-8",
+]
+
+[[package]]
 name = "typenum"
 version = "1.16.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3023,6 +3094,12 @@ dependencies = [
  "idna",
  "percent-encoding",
 ]
+
+[[package]]
+name = "utf-8"
+version = "0.7.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "09cc8ee72d2a9becf2f2febe0205bbed8fc6615b7cb429ad062dc7b7ddd036a9"
 
 [[package]]
 name = "uuid"
@@ -3357,6 +3434,12 @@ checksum = "80d0f4e272c85def139476380b12f9ac60926689dd2e01d4923222f40580869d"
 dependencies = [
  "winapi",
 ]
+
+[[package]]
+name = "xxhash-rust"
+version = "0.8.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "735a71d46c4d68d71d4b24d03fdc2b98e38cea81730595801db779c04fe80d70"
 
 [[package]]
 name = "yaml-rust"

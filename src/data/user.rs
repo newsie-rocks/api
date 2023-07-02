@@ -111,6 +111,11 @@ pub async fn update(ctx: &Context, id: Uuid, fields: UserFields) -> Result<(), D
     params.push(&id);
 
     let mut i = 1;
+    if let Some(id) = fields.id.as_ref() {
+        i += 1;
+        params.push(id);
+        stmt_cols += format!("id = ${i}").as_ref();
+    }
     if let Some(name) = fields.name.as_ref() {
         i += 1;
         params.push(name);
@@ -129,7 +134,7 @@ pub async fn update(ctx: &Context, id: Uuid, fields: UserFields) -> Result<(), D
 
     // ... add other fields here
 
-    if i == 1 {
+    if i == 0 {
         // Nothing to update
         return Ok(());
     }
@@ -153,7 +158,10 @@ pub async fn delete(ctx: &Context, id: Uuid) -> Result<(), DbError> {
 #[cfg(test)]
 mod tests {
 
-    use std::sync::Arc;
+    use fake::{
+        faker::{internet::en::FreeEmail, name::en::Name},
+        Fake,
+    };
 
     use crate::{
         config::AppConfig,
@@ -163,95 +171,66 @@ mod tests {
         },
     };
 
-    /// Initializes a dummy [Context] for tests
-    async fn init_ctx() -> Context {
+    /// Initializes the tests
+    async fn init_tests() -> Context {
         let cfg = AppConfig::load().await;
-        let postgres_pool = cfg.postgres.pool();
-        let qdrant_client = Arc::new(cfg.qdrant.client().unwrap());
+        let mut ctx = Context::init(cfg);
 
-        Context {
-            auth_secret: "dummy".to_string(),
-            postgres_pool,
-            qdrant_client,
-            user: None,
-        }
+        let name: String = Name().fake();
+        let email: String = FreeEmail().fake();
+        let user = super::create(
+            &ctx,
+            NewUser {
+                name,
+                email,
+                password: "dummy".to_string(),
+            },
+        )
+        .await
+        .unwrap();
+        ctx.user = Some(user);
+        ctx
     }
 
     #[tokio::test]
     async fn create_table() {
-        let ctx = init_ctx().await;
+        let ctx = init_tests().await;
 
         super::create_table(&ctx).await.unwrap();
     }
 
     #[tokio::test]
     async fn create_user() {
-        let ctx = init_ctx().await;
-
-        let new_user = NewUser {
-            name: "test_user".to_string(),
-            email: "test@nicklabs.io".to_string(),
-            password: "dummy".to_string(),
-        };
-        let user = super::create(&ctx, new_user).await.unwrap();
-
-        assert_eq!(user.name, "test_user".to_string())
+        let _ctx = init_tests().await;
     }
 
     #[tokio::test]
     async fn read_with_id() {
-        let ctx = init_ctx().await;
+        let ctx = init_tests().await;
 
-        let new_user = NewUser {
-            name: "test_user".to_string(),
-            email: "test@nicklabs.io".to_string(),
-            password: "dummy".to_string(),
-        };
-        let new_user = super::create(&ctx, new_user).await.unwrap();
-
-        let user = super::read(&ctx, new_user.id).await.unwrap();
-        assert_eq!(user.unwrap().id, new_user.id);
+        let user = super::read(&ctx, ctx.user.as_ref().unwrap().id)
+            .await
+            .unwrap();
+        assert_eq!(user.unwrap().id, ctx.user.unwrap().id);
     }
 
     #[tokio::test]
     async fn read_with_email() {
-        let ctx = init_ctx().await;
+        let ctx = init_tests().await;
 
-        let new_user = super::create(
-            &ctx,
-            NewUser {
-                name: "test_user".to_string(),
-                email: "test@nicklabs.io".to_string(),
-                password: "dummy".to_string(),
-            },
-        )
-        .await
-        .unwrap();
-
-        let user = super::read_with_email(&ctx, new_user.email.as_str())
+        let user = super::read_with_email(&ctx, ctx.user.as_ref().unwrap().email.as_str())
             .await
             .unwrap();
-        assert_eq!(user.unwrap().email, new_user.email);
+        assert_eq!(user.unwrap().email, ctx.user.unwrap().email);
     }
 
     #[tokio::test]
     async fn update() {
-        let ctx = init_ctx().await;
-
-        let new_user = super::create(
-            &ctx,
-            NewUser {
-                name: "test_user_update".to_string(),
-                email: "test@nicklabs.io".to_string(),
-                password: "dummy".to_string(),
-            },
-        )
-        .await
-        .unwrap();
+        let ctx = init_tests().await;
 
         super::update(
             &ctx,
-            new_user.id,
+            ctx.user.as_ref().unwrap().id,
             UserFields {
                 id: None,
                 name: Some("test_user_update_new_name".to_string()),
@@ -265,15 +244,9 @@ mod tests {
 
     #[tokio::test]
     async fn delete() {
-        let ctx = init_ctx().await;
+        let ctx = init_tests().await;
 
-        let new_user_input = NewUser {
-            name: "test_user".to_string(),
-            email: "test@nicklabs.io".to_string(),
-            password: "dummy".to_string(),
-        };
-        let new_user = super::create(&ctx, new_user_input).await.unwrap();
-
-        super::delete(&ctx, new_user.id).await.unwrap();
+        let user = ctx.user.as_ref().unwrap();
+        super::delete(&ctx, user.id).await.unwrap();
     }
 }

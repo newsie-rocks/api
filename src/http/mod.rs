@@ -3,28 +3,36 @@
 use salvo::prelude::*;
 use tracing::trace;
 
+use crate::{config::AppConfig, svc::Context};
+
 pub mod auth;
 pub mod error;
 pub mod mdw;
 
 /// Returns the router
-pub fn get_router() -> Router {
+pub fn get_router(cfg: &AppConfig) -> Router {
+    let ctx = Context::init(cfg);
+
     let router = Router::new()
-        .hoop(mdw::add_context)
+        .hoop(salvo::affix::inject(ctx))
+        .hoop(mdw::authenticate)
         .get(root)
         .push(Router::with_path("/up").get(healthcheck))
         .push(Router::with_path("/auth/signup").post(auth::signup))
         .push(Router::with_path("/auth/login").post(auth::login))
-        .push(Router::with_path("/auth/me").get(auth::get_user));
+        .push(
+            Router::with_path("/auth/me")
+                .get(auth::get_user)
+                .patch(auth::update_user),
+        );
 
     // set the OpenAPI route
     let version = env!("CARGO_PKG_VERSION");
     let openapi = OpenApi::new("Api", version).merge_router(&router);
-    let router = router
-        .push(openapi.into_router("/openapi"))
-        .push(SwaggerUi::new("/openapi").into_router("/openapi/ui"));
 
     router
+        .push(openapi.into_router("/openapi"))
+        .push(SwaggerUi::new("/openapi").into_router("/openapi/ui"))
 }
 
 /// Serves the root path
@@ -51,7 +59,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_root() {
-        let router = get_router();
+        let cfg = AppConfig::load().await;
+        let router = get_router(cfg);
         let service = Service::new(router);
         let res = TestClient::get("http://localhost:3000")
             .send(&service)
@@ -61,7 +70,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_healthcheck() {
-        let router = get_router();
+        let cfg = AppConfig::load().await;
+        let router = get_router(cfg);
         let service = Service::new(router);
         let res = TestClient::get("http://localhost:3000/up")
             .send(&service)

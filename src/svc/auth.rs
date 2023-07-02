@@ -114,7 +114,7 @@ pub async fn create_user(ctx: &Context, mut new_user: NewUser) -> Result<User, A
     // check that the user with the email exists
     if let Some(u) = crate::data::user::read_with_email(ctx, &new_user.email)
         .await
-        .map_err(|err| AuthError::from(err))?
+        .map_err(AuthError::from)?
     {
         return Err(AuthError::Unauthorized {
             message: format!("user with email '{email}' already exists", email = u.email),
@@ -240,8 +240,6 @@ pub fn verify_password(hash: &str, password: &str) -> Result<bool, AuthError> {
 #[cfg(test)]
 mod tests {
 
-    use std::sync::Arc;
-
     use fake::{
         faker::{internet::en::FreeEmail, name::en::Name},
         Fake,
@@ -256,18 +254,9 @@ mod tests {
     };
 
     /// Initializes the test context
-    async fn init_ctx() -> Context {
+    async fn init_tests() -> Context {
         let cfg = AppConfig::load().await;
-        let postgres_pool = cfg.postgres.pool();
-        let qdrant_client = Arc::new(cfg.qdrant.client().unwrap());
-
-        // init the Context without the user
-        let mut ctx = Context {
-            auth_secret: "dummy".to_string(),
-            postgres_pool,
-            qdrant_client,
-            user: None,
-        };
+        let mut ctx = Context::init(cfg);
 
         // create a user
         let name: String = Name().fake();
@@ -289,7 +278,7 @@ mod tests {
 
     #[tokio::test]
     async fn update_user() {
-        let ctx = init_ctx().await;
+        let ctx = init_tests().await;
 
         let updated_user = super::update_user(
             &ctx,
@@ -308,7 +297,7 @@ mod tests {
 
     #[tokio::test]
     async fn delete_user() {
-        let ctx = init_ctx().await;
+        let ctx = init_tests().await;
         super::delete_user(&ctx, ctx.user.as_ref().unwrap().id)
             .await
             .unwrap();
@@ -316,10 +305,10 @@ mod tests {
 
     #[tokio::test]
     async fn issue_token() {
-        let ctx: Context = init_ctx().await;
+        let ctx = init_tests().await;
 
         let user = ctx.user.as_ref().unwrap();
-        let token = super::issue_user_token(&ctx, &user).unwrap();
+        let token = super::issue_user_token(&ctx, user).unwrap();
 
         let db_user = super::read_user_with_token(&ctx, &token)
             .await

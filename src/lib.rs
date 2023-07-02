@@ -27,16 +27,12 @@ pub async fn start_server() -> Result<(), Box<dyn std::error::Error + Send + Syn
     trace::init_tracer(cfg);
 
     // Create the router
-    let router = http::get_router();
+    let router = http::get_router(cfg);
 
     // Start the server
     let addr = cfg.server.addr().unwrap();
     let acceptor = TcpListener::new(addr).bind().await;
     println!("Listening on http://{}", addr);
-    Ok(Server::new(acceptor).serve(router).await)
-}
-
-#[cfg(test)]
-mod tests {
-    //
+    Server::new(acceptor).serve(router).await;
+    Ok(())
 }

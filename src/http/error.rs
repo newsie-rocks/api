@@ -99,8 +99,8 @@ impl EndpointOutRegister for HttpError {
             .add_content("application/json", content.clone());
         operation.responses.insert("401", res);
 
-        let res = salvo::oapi::Response::new("Server error")
-            .add_content("application/json", content.clone());
+        let res =
+            salvo::oapi::Response::new("Server error").add_content("application/json", content);
         operation.responses.insert("500", res);
     }
 }

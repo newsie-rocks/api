@@ -44,14 +44,14 @@ pub async fn signup(
     res: &mut Response,
     body: JsonBody<NewUser>,
 ) -> Result<Json<SignupRespBody>, HttpError> {
-    trace!("receiving request");
+    trace!("received request");
 
     let new_user = body.into_inner();
 
     let ctx = depot.obtain::<Context>().unwrap();
-    let user = svc::auth::create_user(&ctx, new_user).await?;
+    let user = svc::auth::create_user(ctx, new_user).await?;
 
-    let token = svc::auth::issue_user_token(&ctx, &user)?;
+    let token = svc::auth::issue_user_token(ctx, &user)?;
     let auth_cookie = issue_auth_cookie(&token);
 
     res.status_code(StatusCode::CREATED);
@@ -89,12 +89,14 @@ pub async fn login(
     res: &mut Response,
     body: JsonBody<LoginReqBody>,
 ) -> Result<Json<LoginRespBody>, HttpError> {
+    trace!("received request");
+
     let payload = body.into_inner();
 
     let ctx = depot.obtain::<Context>().unwrap();
-    let user = svc::auth::login(&ctx, &payload.email, &payload.password).await?;
+    let user = svc::auth::login(ctx, &payload.email, &payload.password).await?;
 
-    let token = svc::auth::issue_user_token(&ctx, &user)?;
+    let token = svc::auth::issue_user_token(ctx, &user)?;
     let auth_cookie = issue_auth_cookie(&token);
 
     res.status_code(StatusCode::OK);
@@ -117,6 +119,8 @@ pub struct GetUserRespBody {
 #[endpoint]
 #[tracing::instrument(skip_all)]
 pub async fn get_user(depot: &mut Depot) -> Result<Json<GetUserRespBody>, HttpError> {
+    trace!("received request");
+
     let ctx = depot.obtain::<Context>().unwrap();
 
     let user = match &ctx.user {
@@ -139,6 +143,8 @@ pub async fn update_user(
     depot: &mut Depot,
     body: JsonBody<UserFields>,
 ) -> Result<Json<GetUserRespBody>, HttpError> {
+    trace!("received request");
+
     let ctx = depot.obtain::<Context>().unwrap();
 
     let user_id = match &ctx.user {
@@ -150,7 +156,7 @@ pub async fn update_user(
             ));
         }
     };
-    let user = crate::svc::auth::update_user(&ctx, user_id, body.into_inner()).await?;
+    let user = crate::svc::auth::update_user(ctx, user_id, body.into_inner()).await?;
 
     Ok(Json(GetUserRespBody { user }))
 }
@@ -177,17 +183,17 @@ mod tests {
     use super::*;
 
     /// New user for tests
-    static NEW_USER: OnceCell<(User, String)> = OnceCell::const_new();
+    static NEW_USER: OnceCell<(Service, User, String)> = OnceCell::const_new();
 
-    /// Initializes a new user
-    async fn init_user() -> &'static (User, String) {
+    /// Initializes the tests
+    async fn init_tests() -> &'static (Service, User, String) {
         NEW_USER
             .get_or_init(|| async {
-                // inti tracer
+                // init tracer
                 let cfg = AppConfig::load().await;
                 crate::trace::init_tracer(cfg);
 
-                let router = get_router();
+                let router = get_router(cfg);
                 let service = Service::new(router);
 
                 let name: String = Name().fake();
@@ -202,37 +208,57 @@ mod tests {
                     .await;
 
                 let body = res.take_json::<SignupRespBody>().await.unwrap();
-                (body.user, body.token)
+                (service, body.user, body.token)
             })
             .await
     }
 
     #[tokio::test]
     async fn test_login() {
-        let router = get_router();
-        let service = Service::new(router);
-
-        let (user, _) = init_user().await;
+        let (service, user, _) = init_tests().await;
         let res = TestClient::post("http://localhost:3000/auth/login")
             .json(&LoginReqBody {
                 email: user.email.clone(),
                 password: "1234".to_string(),
             })
-            .send(&service)
+            .send(service)
             .await;
         assert_eq!(res.status_code.unwrap(), StatusCode::OK);
     }
 
     #[tokio::test]
     async fn test_me_get() {
-        let router = get_router();
-        let service = Service::new(router);
-
-        let (_, token) = init_user().await;
+        let (service, _, token) = init_tests().await;
         let res = TestClient::get("http://localhost:3000/auth/me")
             .add_header(AUTHORIZATION, format!("Bearer {token}"), true)
-            .send(&service)
+            .send(service)
             .await;
         assert_eq!(res.status_code.unwrap(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn test_me_update() {
+        let (service, _, token) = init_tests().await;
+        let mut res = TestClient::patch("http://localhost:3000/auth/me")
+            .add_header(AUTHORIZATION, format!("Bearer {token}"), true)
+            .json(&UserFields {
+                id: None,
+                name: Some("new Name".to_string()),
+                email: None,
+                password: None,
+            })
+            .send(service)
+            .await;
+
+        // BUG: when running all the auth tests, there is a 500 code on the update test
+        // It is very random
+        // it seems to be related to a connection closed error
+        // it seems related to the fact that tests use different runtime, so the shared connection pool
+        // is closed when the test ends
+        // see: https://github.com/tokio-rs/tokio/issues/2374
+        assert_eq!(res.status_code.unwrap(), StatusCode::OK);
+
+        let body = res.take_json::<GetUserRespBody>().await.unwrap();
+        assert_eq!(body.user.name, "new Name".to_string());
     }
 }

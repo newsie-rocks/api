@@ -107,7 +107,7 @@ impl Default for PostGresConfig {
 
 impl PostGresConfig {
     /// Creates a new [deadpool_postgres::Pool]
-    pub fn pool(&self) -> deadpool_postgres::Pool {
+    pub fn new_pool(&self) -> deadpool_postgres::Pool {
         // set TLS config
         let tls = tokio_postgres::tls::NoTls;
 
@@ -144,11 +144,10 @@ impl Default for QdrantConfig {
 }
 
 impl QdrantConfig {
-    /// Returns the qdrant client
-    pub fn client(&self) -> Result<QdrantClient, AppConfigError> {
+    /// Creates a new [QdrantClient]
+    pub fn new_client(&self) -> QdrantClient {
         let config = QdrantClientConfig::from_url(&self.url);
-        Ok(QdrantClient::new(Some(config))
-            .map_err(|err| AppConfigError::InvalidQdrantConfig(err.to_string()))?)
+        QdrantClient::new(Some(config)).unwrap()
     }
 }
 
@@ -192,7 +191,7 @@ mod tests {
     async fn test_postgres_conn() {
         let cfg = AppConfig::load().await;
 
-        let postgres_pool = cfg.postgres.pool();
+        let postgres_pool = cfg.postgres.new_pool();
         let postgres_client = postgres_pool.get().await.unwrap();
         let rows = postgres_client.query("SELECT 1", &[]).await.unwrap();
 
@@ -203,7 +202,7 @@ mod tests {
     async fn test_qdrant_conn() {
         let cfg = AppConfig::load().await;
 
-        let qdrant_client = cfg.qdrant.client().unwrap();
+        let qdrant_client = cfg.qdrant.new_client();
         qdrant_client.health_check().await.unwrap();
     }
 }
