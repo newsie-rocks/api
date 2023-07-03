@@ -1,8 +1,8 @@
 //! Db errors
 
-/// Database error
+/// Store error
 #[derive(Debug, thiserror::Error)]
-pub enum DbError {
+pub enum StoreError {
     /// Internal error
     #[error("internal error: {message}")]
     Internal {
@@ -11,17 +11,17 @@ pub enum DbError {
     },
 }
 
-impl From<deadpool_postgres::PoolError> for DbError {
+impl From<deadpool_postgres::PoolError> for StoreError {
     fn from(value: deadpool_postgres::PoolError) -> Self {
-        DbError::Internal {
+        StoreError::Internal {
             message: value.to_string(),
         }
     }
 }
 
-impl From<tokio_postgres::Error> for DbError {
+impl From<tokio_postgres::Error> for StoreError {
     fn from(value: tokio_postgres::Error) -> Self {
-        DbError::Internal {
+        StoreError::Internal {
             message: value.to_string(),
         }
     }

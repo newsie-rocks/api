@@ -7,25 +7,8 @@ use tracing::trace;
 
 use crate::{
     http::error::HttpError,
-    svc::{
-        self,
-        auth::{NewUser, User, UserFields},
-        Context,
-    },
+    svc::auth::{AuthService, NewUser, User, UserFields},
 };
-
-/// Authentication cookie name
-pub(crate) const AUTH_COOKIE_NAME: &str = "newsie/auth_token";
-
-/// Issues the authentication cookie
-fn issue_auth_cookie(token: &str) -> Cookie<'static> {
-    Cookie::build(AUTH_COOKIE_NAME, token.to_string())
-        .http_only(true)
-        // .domain("www.rust-lang.org")
-        // .path("/")
-        // .secure(true)
-        .finish()
-}
 
 /// Signup response body
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
@@ -45,18 +28,15 @@ pub async fn signup(
     body: JsonBody<NewUser>,
 ) -> Result<Json<SignupRespBody>, HttpError> {
     trace!("received request");
-
+    let auth = depot.obtain::<AuthService>().unwrap();
     let new_user = body.into_inner();
 
-    let ctx = depot.obtain::<Context>().unwrap();
-    let user = svc::auth::create_user(ctx, new_user).await?;
-
-    let token = svc::auth::issue_user_token(ctx, &user)?;
+    let user = auth.create(new_user).await?;
+    let token = auth.issue_token(&user)?;
     let auth_cookie = issue_auth_cookie(&token);
 
     res.status_code(StatusCode::CREATED);
-    res.add_cookie(auth_cookie.clone());
-
+    res.add_cookie(auth_cookie);
     Ok(Json(SignupRespBody {
         token: token.clone(),
         user,
@@ -90,18 +70,15 @@ pub async fn login(
     body: JsonBody<LoginReqBody>,
 ) -> Result<Json<LoginRespBody>, HttpError> {
     trace!("received request");
-
+    let auth = depot.obtain::<AuthService>().unwrap();
     let payload = body.into_inner();
 
-    let ctx = depot.obtain::<Context>().unwrap();
-    let user = svc::auth::login(ctx, &payload.email, &payload.password).await?;
-
-    let token = svc::auth::issue_user_token(ctx, &user)?;
+    let user = auth.login(&payload.email, &payload.password).await?;
+    let token = auth.issue_token(&user)?;
     let auth_cookie = issue_auth_cookie(&token);
 
     res.status_code(StatusCode::OK);
     res.add_cookie(auth_cookie);
-
     Ok(Json(LoginRespBody {
         token: token.clone(),
         user,
@@ -120,10 +97,9 @@ pub struct GetUserRespBody {
 #[tracing::instrument(skip_all)]
 pub async fn get_user(depot: &mut Depot) -> Result<Json<GetUserRespBody>, HttpError> {
     trace!("received request");
+    let user = depot.obtain::<User>();
 
-    let ctx = depot.obtain::<Context>().unwrap();
-
-    let user = match &ctx.user {
+    let user = match user {
         Some(u) => u.clone(),
         None => {
             return Err(HttpError::Unauthorized(
@@ -144,10 +120,10 @@ pub async fn update_user(
     body: JsonBody<UserFields>,
 ) -> Result<Json<GetUserRespBody>, HttpError> {
     trace!("received request");
+    let auth = depot.obtain::<AuthService>().unwrap();
+    let user = depot.obtain::<User>();
 
-    let ctx = depot.obtain::<Context>().unwrap();
-
-    let user_id = match &ctx.user {
+    let user_id = match user {
         Some(u) => u.id,
         None => {
             return Err(HttpError::Unauthorized(
@@ -156,7 +132,7 @@ pub async fn update_user(
             ));
         }
     };
-    let user = crate::svc::auth::update_user(ctx, user_id, body.into_inner()).await?;
+    let user = auth.update(user_id, body.into_inner()).await?;
 
     Ok(Json(GetUserRespBody { user }))
 }
@@ -168,10 +144,10 @@ pub async fn update_user(
 #[tracing::instrument(skip_all)]
 pub async fn delete_user(depot: &mut Depot) -> Result<(), HttpError> {
     trace!("received request");
+    let auth = depot.obtain::<AuthService>().unwrap();
+    let user = depot.obtain::<User>();
 
-    let ctx = depot.obtain::<Context>().unwrap();
-
-    let user_id = match &ctx.user {
+    let user_id = match user {
         Some(u) => u.id,
         None => {
             return Err(HttpError::Unauthorized(
@@ -180,9 +156,22 @@ pub async fn delete_user(depot: &mut Depot) -> Result<(), HttpError> {
             ));
         }
     };
-    crate::svc::auth::delete_user(ctx, user_id).await?;
+    auth.delete(user_id).await?;
 
     Ok(())
+}
+
+/// Authentication cookie key
+pub const AUTH_COOKIE_NAME: &str = "newsie/auth_token";
+
+/// Issues a new authentication cookie
+pub fn issue_auth_cookie(token: &str) -> Cookie<'static> {
+    Cookie::build(AUTH_COOKIE_NAME, token.to_string())
+        .http_only(true)
+        // .domain("www.rust-lang.org")
+        // .path("/")
+        // .secure(true)
+        .finish()
 }
 
 #[cfg(test)]
@@ -201,22 +190,18 @@ mod tests {
         Service,
     };
 
-    use crate::{
-        config::AppConfig,
-        http::get_service,
-        svc::auth::{issue_user_token, NewUser},
-    };
+    use crate::{config::AppConfig, http::get_service, svc::auth::NewUser};
 
     // Test runner to setup and cleanup a test
-    async fn run_test<F>(f: impl Fn(Service, Context, String) -> F)
+    async fn run_test<F>(f: impl Fn(Service, User, String) -> F)
     where
-        F: Future<Output = (Service, Context, String)>,
+        F: Future<Output = (Service, User, String)>,
     {
         // setup
         let cfg = AppConfig::load().await;
-        crate::trace::init_tracer(cfg);
-        let service = get_service(cfg);
-        let mut ctx = Context::init(cfg);
+        crate::trace::init_tracer(&cfg);
+        let service = get_service(&cfg);
+        let auth = AuthService::new(cfg.postgres.new_pool(), cfg.auth.secret.clone());
 
         // create test user
         let name: String = Name().fake();
@@ -230,13 +215,13 @@ mod tests {
             .send(&service)
             .await;
         let body = res.take_json::<SignupRespBody>().await.unwrap();
+        let user = body.user;
 
         // issue the token and set the context
-        let token = issue_user_token(&ctx, &body.user).unwrap();
-        ctx.user = Some(body.user);
+        let token = auth.issue_token(&user).unwrap();
 
         // Run the test
-        let (service, _ctx, token) = f(service, ctx, token).await;
+        let (service, _ctx, token) = f(service, user, token).await;
 
         // cleanup
         let res = TestClient::delete("http://localhost:3000/auth/me")
@@ -250,37 +235,36 @@ mod tests {
 
     #[tokio::test]
     async fn test_login() {
-        run_test(|service, ctx, token| async {
-            let user = ctx.user.as_ref().unwrap().clone();
+        run_test(|service, user, token| async {
             let res = TestClient::post("http://localhost:3000/auth/login")
                 .json(&LoginReqBody {
-                    email: user.email,
+                    email: user.email.clone(),
                     password: "1234".to_string(),
                 })
                 .send(&service)
                 .await;
             assert_eq!(res.status_code.unwrap(), StatusCode::OK);
-            (service, ctx, token)
+            (service, user, token)
         })
         .await;
     }
 
     #[tokio::test]
     async fn test_me_get() {
-        run_test(|service, ctx, token| async {
+        run_test(|service, user, token| async {
             let res = TestClient::get("http://localhost:3000/auth/me")
                 .add_header(AUTHORIZATION, format!("Bearer {token}"), true)
                 .send(&service)
                 .await;
             assert_eq!(res.status_code.unwrap(), StatusCode::OK);
-            (service, ctx, token)
+            (service, user, token)
         })
         .await;
     }
 
     #[tokio::test]
     async fn test_me_update() {
-        run_test(|service, ctx, token| async {
+        run_test(|service, user, token| async {
             let res = TestClient::patch("http://localhost:3000/auth/me")
                 .add_header(AUTHORIZATION, format!("Bearer {token}"), true)
                 .json(&UserFields {
@@ -292,7 +276,7 @@ mod tests {
                 .send(&service)
                 .await;
             assert_eq!(res.status_code.unwrap(), StatusCode::OK);
-            (service, ctx, token)
+            (service, user, token)
         })
         .await;
     }

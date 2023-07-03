@@ -24,10 +24,10 @@ pub async fn start_server() -> Result<(), Box<dyn std::error::Error + Send + Syn
     let cfg = config::AppConfig::load().await;
 
     // Init the tracing framework
-    trace::init_tracer(cfg);
+    trace::init_tracer(&cfg);
 
-    // Create the router
-    let service = http::get_service(cfg);
+    // Create the HTTP service
+    let service = http::get_service(&cfg);
 
     // Start the server
     let addr = cfg.server.addr().unwrap();

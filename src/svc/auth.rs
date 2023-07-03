@@ -5,9 +5,83 @@ use salvo::prelude::*;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::data::error::DbError;
+use crate::data::{error::StoreError, user::UserStore};
 
-use super::Context;
+/// Authentication service
+#[derive(Debug, Clone)]
+pub struct AuthService {
+    /// User store
+    pub store: UserStore,
+    /// Secret used to sign the JWT token
+    pub secret: String,
+}
+
+impl AuthService {
+    /// Creates a new service instance
+    pub fn new(postgres_pool: deadpool_postgres::Pool, secret: String) -> Self {
+        let store = UserStore::new(postgres_pool);
+        Self { store, secret }
+    }
+}
+
+/// Authentication service error
+#[derive(Debug, thiserror::Error)]
+pub enum AuthError {
+    /// Invalid JWT token
+    #[error("Invalid JWT token: {message}")]
+    InvalidToken {
+        /// Message
+        message: String,
+    },
+    /// User not found
+    #[error("Invalid user: {message}")]
+    UserNotFound {
+        /// Message
+        message: String,
+    },
+    /// Invalid credentials
+    #[error("Invalid credentials: {message}")]
+    InvalidCredentials {
+        /// Message
+        message: String,
+    },
+    /// Unauthorized
+    #[error("Unauthorized")]
+    Unauthorized {
+        /// Message
+        message: String,
+    },
+    /// Internal error
+    #[error("{message}")]
+    Internal {
+        /// Message
+        message: String,
+    },
+}
+
+impl From<jsonwebtoken::errors::Error> for AuthError {
+    fn from(value: jsonwebtoken::errors::Error) -> Self {
+        AuthError::InvalidToken {
+            message: format!("invalid token: {value}"),
+        }
+    }
+}
+
+impl From<StoreError> for AuthError {
+    fn from(value: StoreError) -> Self {
+        match value {
+            StoreError::Internal { message } => AuthError::Internal { message },
+        }
+    }
+}
+
+impl From<password_hash::Error> for AuthError {
+    fn from(value: password_hash::Error) -> Self {
+        AuthError::Internal {
+            message: format!("{value}"),
+        }
+    }
+}
 
 /// User
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
@@ -58,178 +132,116 @@ struct AuthJwtClaims {
     user_id: Uuid,
 }
 
-/// Authentication service error
-#[derive(Debug, thiserror::Error)]
-pub enum AuthError {
-    /// Invalid JWT token
-    #[error("Invalid JWT token: {message}")]
-    InvalidToken {
-        /// Message
-        message: String,
-    },
-    /// User not found
-    #[error("Invalid user: {message}")]
-    UserNotFound {
-        /// Message
-        message: String,
-    },
-    /// Invalid credentials
-    #[error("Invalid credentials: {message}")]
-    InvalidCredentials {
-        /// Message
-        message: String,
-    },
-    /// Unauthorized
-    #[error("Unauthorized")]
-    Unauthorized {
-        /// Message
-        message: String,
-    },
-    /// Internal error
-    #[error("{message}")]
-    Internal {
-        /// Message
-        message: String,
-    },
-}
+impl AuthService {
+    /// Creates a new [User]
+    pub async fn create(&self, mut new_user: NewUser) -> Result<User, AuthError> {
+        // check that the user with the email exists
+        if let Some(u) = self
+            .store
+            .read_with_email(&new_user.email)
+            .await
+            .map_err(AuthError::from)?
+        {
+            return Err(AuthError::Unauthorized {
+                message: format!("user with email '{email}' already exists", email = u.email),
+            });
+        };
 
-impl From<jsonwebtoken::errors::Error> for AuthError {
-    fn from(value: jsonwebtoken::errors::Error) -> Self {
-        AuthError::InvalidToken {
-            message: format!("invalid token: {value}"),
+        // Hash the password
+        let hashed_pwd = hash_password(&new_user.password)?;
+        new_user.password = hashed_pwd;
+
+        Ok(self.store.create(new_user).await?)
+    }
+
+    /// Queries a user with its ID
+    pub async fn read(&self, user_id: Uuid) -> Result<Option<User>, AuthError> {
+        Ok(self.store.read(user_id).await?)
+    }
+
+    /// Updates a user
+    pub async fn update(&self, user_id: Uuid, mut fields: UserFields) -> Result<User, AuthError> {
+        // Hash the password before updating it
+        if let Some(password) = fields.password.as_ref() {
+            let hashed_pwd = hash_password(password)?;
+            fields.password = Some(hashed_pwd);
+        }
+
+        self.store.update(user_id, fields).await?;
+        self.store
+            .read(user_id)
+            .await?
+            .ok_or_else(|| AuthError::UserNotFound {
+                message: "no user".to_string(),
+            })
+    }
+
+    /// Deletes a user
+    pub async fn delete(&self, user_id: Uuid) -> Result<(), AuthError> {
+        Ok(self.store.delete(user_id).await?)
+    }
+
+    /// Login a new user
+    pub async fn login(&self, email: &str, password: &str) -> Result<User, AuthError> {
+        let user = self.store.read_with_email(email).await?;
+        if user.is_none() {
+            return Err(AuthError::UserNotFound {
+                message: format!("no user for email '{email}'"),
+            });
+        }
+        let user = user.unwrap();
+
+        if !verify_password(&user.password, password)? {
+            return Err(AuthError::InvalidCredentials {
+                message: format!("invalid password for email '{email}'"),
+            });
+        }
+
+        Ok(user)
+    }
+
+    /// Issues a JWT token for a user
+    pub fn issue_token(&self, user: &User) -> Result<String, AuthError> {
+        // define the token expiry
+        let exp = time::OffsetDateTime::now_utc() + time::Duration::minutes(60);
+
+        let claims = AuthJwtClaims {
+            sub: "auth".to_string(),
+            exp: exp.unix_timestamp().try_into().unwrap(),
+            user_id: user.id,
+        };
+
+        match jsonwebtoken::encode(
+            &jsonwebtoken::Header::default(),
+            &claims,
+            &jsonwebtoken::EncodingKey::from_secret(self.secret.as_bytes()),
+        ) {
+            Ok(t) => Ok(t),
+            Err(err) => Err(err.into()),
         }
     }
-}
 
-impl From<DbError> for AuthError {
-    fn from(value: DbError) -> Self {
-        match value {
-            DbError::Internal { message } => AuthError::Internal { message },
-        }
+    /// Queries a user with a JWT token
+    pub async fn read_with_token(&self, token: &str) -> Result<Option<User>, AuthError> {
+        // Decode the token
+        let claims = match jsonwebtoken::decode::<AuthJwtClaims>(
+            token,
+            &jsonwebtoken::DecodingKey::from_secret(self.secret.as_bytes()),
+            &jsonwebtoken::Validation::default(),
+        ) {
+            Ok(data) => data.claims,
+            Err(err) => {
+                return Err(err.into());
+            }
+        };
+
+        // Query the user by ID
+        self.read(claims.user_id).await
     }
-}
-
-impl From<password_hash::Error> for AuthError {
-    fn from(value: password_hash::Error) -> Self {
-        AuthError::Internal {
-            message: format!("{value}"),
-        }
-    }
-}
-
-/// Creates a new [User]
-pub async fn create_user(ctx: &Context, mut new_user: NewUser) -> Result<User, AuthError> {
-    // check that the user with the email exists
-    if let Some(u) = crate::data::user::read_with_email(ctx, &new_user.email)
-        .await
-        .map_err(AuthError::from)?
-    {
-        return Err(AuthError::Unauthorized {
-            message: format!("user with email '{email}' already exists", email = u.email),
-        });
-    };
-
-    // Hash the password
-    let hashed_pwd = hash_password(&new_user.password)?;
-    new_user.password = hashed_pwd;
-
-    Ok(crate::data::user::create(ctx, new_user).await?)
-}
-
-/// Queries a user with its ID
-pub async fn read_user_with_id(ctx: &Context, user_id: Uuid) -> Result<Option<User>, AuthError> {
-    crate::data::user::read(ctx, user_id)
-        .await
-        .map_err(|err| err.into())
-}
-
-/// Updates a user
-pub async fn update_user(
-    ctx: &Context,
-    user_id: Uuid,
-    mut fields: UserFields,
-) -> Result<User, AuthError> {
-    // Hash the password
-    if let Some(password) = fields.password.as_ref() {
-        let hashed_pwd = hash_password(password)?;
-        fields.password = Some(hashed_pwd);
-    }
-
-    crate::data::user::update(ctx, user_id, fields).await?;
-    crate::data::user::read(ctx, user_id)
-        .await?
-        .ok_or_else(|| AuthError::UserNotFound {
-            message: "no user".to_string(),
-        })
-}
-
-/// Deletes a user
-pub async fn delete_user(ctx: &Context, user_id: Uuid) -> Result<(), AuthError> {
-    crate::data::user::delete(ctx, user_id)
-        .await
-        .map_err(|err| err.into())
-}
-
-/// Login a new user
-pub async fn login(ctx: &Context, email: &str, password: &str) -> Result<User, AuthError> {
-    let user = crate::data::user::read_with_email(ctx, email).await?;
-    if user.is_none() {
-        return Err(AuthError::UserNotFound {
-            message: format!("no user for email '{email}'"),
-        });
-    }
-    let user = user.unwrap();
-
-    if !verify_password(&user.password, password)? {
-        return Err(AuthError::InvalidCredentials {
-            message: format!("invalid password for email '{email}'"),
-        });
-    }
-
-    Ok(user)
-}
-
-/// Issues a JWT token for a user
-pub fn issue_user_token(ctx: &Context, user: &User) -> Result<String, AuthError> {
-    // define the token expiry
-    let exp = time::OffsetDateTime::now_utc() + time::Duration::minutes(60);
-
-    let claims = AuthJwtClaims {
-        sub: "auth".to_string(),
-        exp: exp.unix_timestamp().try_into().unwrap(),
-        user_id: user.id,
-    };
-
-    match jsonwebtoken::encode(
-        &jsonwebtoken::Header::default(),
-        &claims,
-        &jsonwebtoken::EncodingKey::from_secret(ctx.auth_secret.as_bytes()),
-    ) {
-        Ok(t) => Ok(t),
-        Err(err) => Err(err.into()),
-    }
-}
-
-/// Queries a user with a JWT token
-pub async fn read_user_with_token(ctx: &Context, token: &str) -> Result<Option<User>, AuthError> {
-    // Decode the token
-    let claims = match jsonwebtoken::decode::<AuthJwtClaims>(
-        token,
-        &jsonwebtoken::DecodingKey::from_secret(ctx.auth_secret.as_bytes()),
-        &jsonwebtoken::Validation::default(),
-    ) {
-        Ok(data) => data.claims,
-        Err(err) => {
-            return Err(err.into());
-        }
-    };
-
-    // Query the user by ID
-    read_user_with_id(ctx, claims.user_id).await
 }
 
 /// Hashes a password
-pub fn hash_password(password: &str) -> Result<String, AuthError> {
+fn hash_password(password: &str) -> Result<String, AuthError> {
     let salt = password_hash::SaltString::generate(&mut password_hash::rand_core::OsRng);
     let argon2 = argon2::Argon2::default();
     let hash = argon2.hash_password(password.as_bytes(), &salt)?;
@@ -258,70 +270,62 @@ mod tests {
 
     use crate::{
         config::AppConfig,
-        svc::{
-            auth::{NewUser, UserFields},
-            Context,
-        },
+        svc::auth::{NewUser, UserFields},
     };
 
     // Test runner to setup and cleanup a test
-    async fn run_test<F>(f: impl Fn(Context) -> F)
+    async fn run_test<F>(f: impl Fn(AuthService, User) -> F)
     where
-        F: Future<Output = Context>,
+        F: Future<Output = (AuthService, User)>,
     {
         let cfg = AppConfig::load().await;
-        let mut ctx = Context::init(cfg);
+        let service = AuthService::new(cfg.postgres.new_pool(), cfg.auth.secret.clone());
 
         // create dummy user
         let name: String = Name().fake();
         let email: String = FreeEmail().fake();
-        let user = create_user(
-            &ctx,
-            NewUser {
+        let user = service
+            .create(NewUser {
                 name,
                 email,
                 password: "dummy".to_string(),
-            },
-        )
-        .await
-        .unwrap();
-        ctx.user = Some(user);
+            })
+            .await
+            .unwrap();
 
         // Run the test
-        let ctx = f(ctx).await;
+        let (service, user) = f(service, user).await;
 
         // cleanup
-        let user_id = ctx.user.as_ref().unwrap().id;
-        delete_user(&ctx, user_id).await.unwrap();
+        service.delete(user.id).await.unwrap();
     }
 
     #[tokio::test]
     async fn test_update_user() {
-        run_test(|ctx| async {
-            let updated_user = super::update_user(
-                &ctx,
-                ctx.user.as_ref().unwrap().id,
-                UserFields {
-                    id: None,
-                    name: Some("__test__update".to_string()),
-                    email: None,
-                    password: None,
-                },
-            )
-            .await
-            .unwrap();
+        run_test(|service, user| async {
+            let updated_user = service
+                .update(
+                    user.id,
+                    UserFields {
+                        id: None,
+                        name: Some("__test__update".to_string()),
+                        email: None,
+                        password: None,
+                    },
+                )
+                .await
+                .unwrap();
             assert_eq!(updated_user.name, "__test__update".to_string());
-            ctx
+            (service, user)
         })
         .await;
     }
 
     #[tokio::test]
     async fn test_issue_token() {
-        run_test(|ctx| async {
-            let user = ctx.user.as_ref().unwrap();
-            let _token = super::issue_user_token(&ctx, user).unwrap();
-            ctx
+        run_test(|service, user| async {
+            let _token = service.issue_token(&user).unwrap();
+            (service, user)
         })
         .await;
     }

@@ -3,7 +3,7 @@
 use salvo::prelude::*;
 use tracing::trace;
 
-use crate::{config::AppConfig, svc::Context};
+use crate::{config::AppConfig, svc::auth::AuthService};
 
 pub mod auth;
 pub mod error;
@@ -11,10 +11,11 @@ pub mod mdw;
 
 /// Returns the router
 pub fn get_router(cfg: &AppConfig) -> Router {
-    let ctx = Context::init(cfg);
+    // init the services
+    let auth_service = AuthService::new(cfg.postgres.new_pool(), cfg.auth.secret.clone());
 
     let router = Router::new()
-        .hoop(salvo::affix::inject(ctx))
+        .hoop(salvo::affix::inject(auth_service))
         .hoop(mdw::authenticate)
         .get(root)
         .push(Router::with_path("/up").get(healthcheck))
@@ -72,7 +73,7 @@ mod tests {
         F: Future<Output = ()>,
     {
         let cfg = AppConfig::load().await;
-        let service = get_service(cfg);
+        let service = get_service(&cfg);
         f(service).await;
     }
 

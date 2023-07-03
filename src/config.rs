@@ -5,10 +5,6 @@ use std::{net::SocketAddr, str::FromStr};
 use config::Config;
 use qdrant_client::prelude::*;
 use serde::Deserialize;
-use tokio::sync::OnceCell;
-
-/// Application configuration global instance
-static APP_CONFIG: OnceCell<AppConfig> = OnceCell::const_new();
 
 /// Application configuration
 #[derive(Debug, Deserialize, Clone)]
@@ -37,23 +33,19 @@ pub enum AppConfigError {
 }
 
 impl AppConfig {
-    /// Loads a configuration from environment variables
-    pub async fn load() -> &'static Self {
-        APP_CONFIG
-            .get_or_init(|| async {
-                let config = Config::builder()
-                    .add_source(
-                        config::Environment::with_prefix("APP")
-                            .try_parsing(false)
-                            .separator("_")
-                            .list_separator(" "),
-                    )
-                    .build()
-                    .unwrap();
+    /// Loads a configuration from the environment
+    pub async fn load() -> Self {
+        let config = Config::builder()
+            .add_source(
+                config::Environment::with_prefix("APP")
+                    .try_parsing(false)
+                    .separator("_")
+                    .list_separator(" "),
+            )
+            .build()
+            .unwrap();
 
-                config.try_deserialize::<AppConfig>().unwrap()
-            })
-            .await
+        config.try_deserialize::<AppConfig>().unwrap()
     }
 }
 
@@ -184,7 +176,7 @@ mod tests {
         assert_eq!(cfg.qdrant.url, qdrant_url);
         // NB:  trace.stdout is a bool, so .to_string() might fail depending on the APP_TRACE_STDOUT value
         assert_eq!(cfg.trace.stdout.to_string(), trace_stdout);
-        assert_eq!(cfg.trace.filter.to_string(), trace_filter);
+        assert_eq!(cfg.trace.filter, trace_filter);
     }
 
     #[tokio::test]

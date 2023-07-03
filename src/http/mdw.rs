@@ -1,9 +1,9 @@
 //! Middlewares
 
-use crate::svc::{self, Context};
-
 use salvo::{hyper::header::AUTHORIZATION, prelude::*};
 use tracing::trace;
+
+use crate::svc::auth::AuthService;
 
 use super::{auth::AUTH_COOKIE_NAME, error::HttpError};
 
@@ -11,7 +11,7 @@ use super::{auth::AUTH_COOKIE_NAME, error::HttpError};
 #[handler]
 pub async fn authenticate(req: &mut Request, depot: &mut Depot) -> Result<(), HttpError> {
     // NB: Context must be set before the user is extracted
-    let ctx = depot.obtain::<Context>().unwrap();
+    let auth = depot.obtain::<AuthService>().unwrap();
 
     // Extract the auth token from the AUTHORIZATION header
     let mut token = None;
@@ -45,15 +45,11 @@ pub async fn authenticate(req: &mut Request, depot: &mut Depot) -> Result<(), Ht
     // Read the user and populate the context
     if let Some(token) = token {
         trace!(token, "auth token");
-        let user = svc::auth::read_user_with_token(ctx, &token).await?;
+        let user = auth.read_with_token(&token).await?;
         trace!(?user, "auth user");
-        let new_ctx = Context {
-            auth_secret: ctx.auth_secret.clone(),
-            postgres_pool: ctx.postgres_pool.clone(),
-            qdrant_client: ctx.qdrant_client.clone(),
-            user,
-        };
-        depot.inject(new_ctx);
+        if let Some(user) = user {
+            depot.inject(user);
+        }
     } else {
         trace!(token, "not authenticated");
     }
