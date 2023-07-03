@@ -1,0 +1,17 @@
+[package]
+name = "newsie-cli"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+newsie-client = { version = "0.1.0", path = "../newsie-client" }
+anyhow = "1.0.71"
+clap = { version = "4.3.10", features = ["derive"] }
+colored = "2.0.1"
+dirs = "5.0.1"
+inquire = "0.6.2"
+serde = { version = "1.0.166", features = ["derive"] }
+tokio = { version = "1.29.1", features = ["full"] }
+toml = "0.7.5"

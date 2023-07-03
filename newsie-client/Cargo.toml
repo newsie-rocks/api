@@ -1,0 +1,10 @@
+[package]
+name = "newsie-client"
+version = "0.1.0"
+edition = "2021"
+description = "API client library"
+
+[dependencies]
+newsie-api = { version = "0.1.0", path = "../newsie-api" }
+reqwest = { version = "0.11.18", features = ["json", "rustls-tls"] }
+thiserror = "1.0.40"

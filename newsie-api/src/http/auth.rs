@@ -7,8 +7,11 @@ use tracing::trace;
 
 use crate::{
     http::error::HttpError,
-    svc::auth::{AuthService, NewUser, User, UserFields},
+    svc::auth::{AuthService, User, UserFields},
 };
+
+// Re-exports
+pub use crate::svc::auth::NewUser;
 
 /// Signup response body
 #[derive(Debug, Serialize, Deserialize, ToSchema)]

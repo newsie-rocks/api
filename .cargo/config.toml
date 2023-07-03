@@ -6,3 +6,8 @@ APP_POSTGRES_URL = "postgresql://nick:enter@localhost:5432/newsie?connect_timeou
 APP_QDRANT_URL = "http://localhost:6334"
 APP_TRACE_STDOUT = "true"
 APP_TRACE_FILTER = "off,api=trace"
+
+[alias]
+newsie-api = "run --bin newsie-api --"
+newsie-openapi = "run --bin openapi --"
+newsie-cli = "run --bin newsie-cli --"
