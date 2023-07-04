@@ -1,2 +1,2 @@
 [workspace]
-members = ["newsie-api", "newsie-client", "newsie-cli"]
+members = ["api", "client-rs", "cli"]

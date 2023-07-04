@@ -103,7 +103,7 @@ impl Config {
 
     /// Returns the API client
     pub fn api_client(&self) -> Client {
-        Client::new(&self.url).token(self.token.as_deref().unwrap_or(""))
+        Client::new(&self.url).token(self.token.clone())
     }
 }
 

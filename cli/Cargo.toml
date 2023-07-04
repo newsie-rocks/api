@@ -6,7 +6,7 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-newsie-client = { version = "0.1.0", path = "../newsie-client" }
+newsie-client = { version = "0.1.0", path = "../client-rs" }
 anyhow = "1.0.71"
 clap = { version = "4.3.10", features = ["derive"] }
 colored = "2.0.1"

@@ -124,35 +124,37 @@ impl UserStore {
     pub async fn update(&self, id: Uuid, fields: UserFields) -> Result<(), StoreError> {
         let client = self.postgres_client().await?;
 
-        let mut stmt_cols = String::new();
+        let mut cols: Vec<&str> = vec![];
         let mut params: Vec<&(dyn tokio_postgres::types::ToSql + Sync)> = vec![];
         params.push(&id);
 
-        let mut i = 1;
         if let Some(name) = fields.name.as_ref() {
-            i += 1;
+            cols.push("name");
             params.push(name);
-            stmt_cols += format!("name = ${i}").as_ref();
         }
         if let Some(email) = fields.email.as_ref() {
-            i += 1;
+            cols.push("email");
             params.push(email);
-            stmt_cols += format!("email = ${i}").as_ref();
         }
         if let Some(password) = fields.password.as_ref() {
-            i += 1;
+            cols.push("password");
             params.push(password);
-            stmt_cols += format!("password = ${i}").as_ref();
         }
-
         // ... add other fields here
 
-        if i == 0 {
+        if cols.is_empty() {
             // Nothing to update
             return Ok(());
         }
 
-        let stmt = format!("UPDATE users SET {} WHERE id=$1", stmt_cols);
+        let stmt = format!(
+            "UPDATE users SET {} WHERE id=$1",
+            cols.iter()
+                .enumerate()
+                .map(|(i, c)| format!("{}=${}", c, i + 2))
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
         let _res = client.execute(&stmt, &params).await?;
 
         Ok(())

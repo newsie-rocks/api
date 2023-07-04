@@ -12,6 +12,7 @@ pub use newsie_api::http::auth::{
 };
 
 /// API client
+#[derive(Debug)]
 pub struct Client {
     /// Base URL
     pub url: String,
@@ -29,8 +30,14 @@ impl Client {
     }
 
     /// Sets the authentication token
-    pub fn token(mut self, token: &str) -> Self {
-        self.token = Some(token.to_string());
+    pub fn token(mut self, token: Option<String>) -> Self {
+        self.token = token;
+        self
+    }
+
+    /// Removes the authentication token
+    pub fn unset_token(&mut self) -> &mut Self {
+        self.token = None;
         self
     }
 }
@@ -39,6 +46,7 @@ impl Client {
     /// Signup a new user
     pub async fn signup(&mut self, new_user: NewUser) -> Result<SignupRespBody, Error> {
         let mut headers = HeaderMap::new();
+
         if let Some(token) = &self.token {
             headers.insert(AUTHORIZATION, format!("Bearer {}", token).parse().unwrap());
             headers.insert("X-Test", "xxx".parse().unwrap());
@@ -136,7 +144,7 @@ impl Client {
     }
 
     /// Deletes the user
-    pub async fn delete_me(&self) -> Result<(), Error> {
+    pub async fn delete_me(&mut self) -> Result<(), Error> {
         let mut headers = HeaderMap::new();
         if let Some(token) = &self.token {
             headers.insert(AUTHORIZATION, format!("Bearer {}", token).parse().unwrap());
@@ -149,6 +157,7 @@ impl Client {
             .await?;
 
         if res.status().is_success() {
+            self.unset_token();
             Ok(())
         } else {
             let err = res.json::<HttpErrorResponse>().await?;

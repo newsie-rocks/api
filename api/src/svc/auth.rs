@@ -201,7 +201,7 @@ impl AuthService {
     /// Issues a JWT token for a user
     pub fn issue_token(&self, user: &User) -> Result<String, AuthError> {
         // define the token expiry
-        let exp = time::OffsetDateTime::now_utc() + time::Duration::minutes(60);
+        let exp = time::OffsetDateTime::now_utc() + time::Duration::days(30);
 
         let claims = AuthJwtClaims {
             sub: "auth".to_string(),

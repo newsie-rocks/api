@@ -81,7 +81,7 @@ pub async fn run(args: AuthArgs) {
                 .prompt()
                 .unwrap_or_exit();
             let email = Text::new("Email:")
-                .with_initial_value(&user.name)
+                .with_initial_value(&user.email)
                 .prompt()
                 .unwrap_or_exit();
             let password = Password::new("Password:").prompt().unwrap_or_exit();
@@ -94,7 +94,12 @@ pub async fn run(args: AuthArgs) {
                 })
                 .await
                 .unwrap_or_exit();
+            success("User has been updated");
         }
-        AuthCommands::Delete => todo!(),
+        AuthCommands::Delete => {
+            client.delete_me().await.unwrap_or_exit();
+            success("User has been deleted");
+            cfg.unset_token(true);
+        }
     }
 }
