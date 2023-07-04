@@ -129,11 +129,6 @@ impl UserStore {
         params.push(&id);
 
         let mut i = 1;
-        if let Some(id) = fields.id.as_ref() {
-            i += 1;
-            params.push(id);
-            stmt_cols += format!("id = ${i}").as_ref();
-        }
         if let Some(name) = fields.name.as_ref() {
             i += 1;
             params.push(name);
@@ -253,7 +248,6 @@ mod tests {
                 .update(
                     user.id,
                     UserFields {
-                        id: None,
                         name: Some("test_user_update_new_name".to_string()),
                         email: None,
                         password: None,

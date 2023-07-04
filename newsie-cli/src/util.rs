@@ -6,22 +6,22 @@ use colored::Colorize;
 
 /// Prints an info message
 pub fn info(msg: &str) {
-    println!("{} {msg}", "i".yellow());
+    eprintln!("{} {msg}", "i".yellow());
 }
 
 /// Prints a success message
 pub fn success(msg: &str) {
-    println!("{} {msg}", "✔️".green());
+    eprintln!("{} {msg}", "✔️".green());
 }
 
 /// Prints a warning message
 pub fn warn(msg: &str) {
-    println!("{} {msg}", "!".yellow());
+    eprintln!("{} {}", "!".yellow(), msg.yellow());
 }
 
 /// Prints an error message
 pub fn error(msg: &str) {
-    println!("{} {}", "x".red(), msg.red());
+    eprintln!("{} {}", "x".red(), msg.red());
 }
 
 /// Result extension trait
@@ -42,6 +42,24 @@ where
             Ok(value) => value,
             Err(err) => {
                 error(err.to_string().as_str());
+                exit(1);
+            }
+        }
+    }
+}
+
+/// Option extension trait
+pub trait OptionExt<T> {
+    /// Unwraps an option or exits with an error
+    fn unwrap_or_exit(self, message: &str) -> T;
+}
+
+impl<T> OptionExt<T> for Option<T> {
+    fn unwrap_or_exit(self, message: &str) -> T {
+        match self {
+            Some(value) => value,
+            None => {
+                error(message);
                 exit(1);
             }
         }

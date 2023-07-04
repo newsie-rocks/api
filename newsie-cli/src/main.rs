@@ -4,7 +4,6 @@ use clap::{Parser, Subcommand};
 
 pub mod auth;
 pub mod config;
-pub mod info;
 pub mod util;
 
 /// Newsie CLI client
@@ -19,17 +18,19 @@ struct Args {
 /// CLI commands
 #[derive(Subcommand)]
 enum Commands {
-    /// Client info
-    Info,
+    /// Configuration commands
+    Config(config::ConfigArgs),
     /// Authentication and user commands
     Auth(auth::AuthArgs),
 }
 
 #[tokio::main]
 async fn main() {
+    println!();
+
     let args = Args::parse();
     match args.commands {
-        Commands::Info => info::get_info(),
+        Commands::Config(args) => config::run(args).await,
         Commands::Auth(args) => auth::run(args).await,
     }
 }

@@ -111,8 +111,6 @@ pub struct NewUser {
 /// User update
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct UserFields {
-    /// ID
-    pub id: Option<Uuid>,
     /// Name
     pub name: Option<String>,
     /// Email
@@ -307,7 +305,6 @@ mod tests {
                 .update(
                     user.id,
                     UserFields {
-                        id: None,
                         name: Some("__test__update".to_string()),
                         email: None,
                         password: None,

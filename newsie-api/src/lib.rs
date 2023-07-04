@@ -32,7 +32,8 @@ pub async fn start_server() -> Result<(), Box<dyn std::error::Error + Send + Syn
     // Start the server
     let addr = cfg.server.addr().unwrap();
     let acceptor = TcpListener::new(addr).bind().await;
-    println!("Listening on http://{}", addr);
+    eprintln!();
+    eprintln!("Listening on http://{}", addr);
     Server::new(acceptor).serve(service).await;
     Ok(())
 }

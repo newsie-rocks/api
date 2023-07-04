@@ -1,7 +1,7 @@
 //! HTTP error handling
 
 use salvo::prelude::*;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::svc;
 
@@ -41,21 +41,21 @@ impl HttpError {
 }
 
 /// Error response
-#[derive(Debug, Serialize, ToSchema)]
-struct ErrorResponse {
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct HttpErrorResponse {
     /// Main error
-    error: ErrorShape,
+    pub error: HttpErrorShape,
 }
 
 /// Error JSON shape
-#[derive(Debug, Serialize, ToSchema)]
-struct ErrorShape {
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct HttpErrorShape {
     /// Code (string)
-    code: String,
+    pub code: String,
     /// Message
-    message: String,
+    pub message: String,
     /// Other details
-    detail: Option<String>,
+    pub detail: Option<String>,
 }
 
 #[async_trait]
@@ -64,31 +64,31 @@ impl Writer for HttpError {
         let code = self.code();
         let status_code = self.status_code();
         let error = match self {
-            HttpError::BadRequest(message, detail) => ErrorShape {
+            HttpError::BadRequest(message, detail) => HttpErrorShape {
                 code,
                 message,
                 detail,
             },
-            HttpError::Unauthorized(message, detail) => ErrorShape {
+            HttpError::Unauthorized(message, detail) => HttpErrorShape {
                 code,
                 message,
                 detail,
             },
-            HttpError::Internal(message, detail) => ErrorShape {
+            HttpError::Internal(message, detail) => HttpErrorShape {
                 code,
                 message,
                 detail,
             },
         };
         res.status_code(status_code);
-        res.render(Json(ErrorResponse { error }));
+        res.render(Json(HttpErrorResponse { error }));
     }
 }
 
 // NB: needed for OpenAPI specs
 impl EndpointOutRegister for HttpError {
     fn register(components: &mut salvo::oapi::Components, operation: &mut salvo::oapi::Operation) {
-        let schema = ErrorResponse::to_schema(components);
+        let schema = HttpErrorResponse::to_schema(components);
         let content = salvo::oapi::Content::new(schema);
 
         let res = salvo::oapi::Response::new("Bad request")

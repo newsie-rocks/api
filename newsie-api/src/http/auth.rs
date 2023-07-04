@@ -5,13 +5,10 @@ use salvo::{oapi::extract::*, prelude::*};
 use serde::{Deserialize, Serialize};
 use tracing::trace;
 
-use crate::{
-    http::error::HttpError,
-    svc::auth::{AuthService, User, UserFields},
-};
+use crate::{http::error::HttpError, svc::auth::AuthService};
 
 // Re-exports
-pub use crate::svc::auth::NewUser;
+pub use crate::svc::auth::{NewUser, User, UserFields};
 
 /// Signup response body
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
@@ -59,9 +56,9 @@ pub struct LoginReqBody {
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct LoginRespBody {
     /// JWT auth token
-    token: String,
+    pub token: String,
     /// User
-    user: User,
+    pub user: User,
 }
 
 /// Handles the login request
@@ -92,7 +89,7 @@ pub async fn login(
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct GetUserRespBody {
     /// User
-    user: User,
+    pub user: User,
 }
 
 /// Fetches the current user
@@ -271,7 +268,6 @@ mod tests {
             let res = TestClient::patch("http://localhost:3000/auth/me")
                 .add_header(AUTHORIZATION, format!("Bearer {token}"), true)
                 .json(&UserFields {
-                    id: None,
                     name: Some("new Name".to_string()),
                     email: None,
                     password: None,

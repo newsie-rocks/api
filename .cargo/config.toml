@@ -5,7 +5,7 @@ APP_AUTH_SECRET = "1234"
 APP_POSTGRES_URL = "postgresql://nick:enter@localhost:5432/newsie?connect_timeout=10"
 APP_QDRANT_URL = "http://localhost:6334"
 APP_TRACE_STDOUT = "true"
-APP_TRACE_FILTER = "off,api=trace"
+APP_TRACE_FILTER = "off,newsie_api=trace"
 
 [alias]
 newsie-api = "run --bin newsie-api --"
