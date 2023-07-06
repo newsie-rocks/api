@@ -55,8 +55,6 @@ pub struct Feed {
 /// New uer feed
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct NewFeed {
-    /// User id
-    pub user_id: Uuid,
     /// Feed url
     pub url: String,
     /// Feed name

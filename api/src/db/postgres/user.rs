@@ -10,8 +10,8 @@ use crate::{
 
 use super::PostgresDb;
 
-impl<'a> From<&'a Row> for User {
-    fn from(value: &'a Row) -> Self {
+impl From<Row> for User {
+    fn from(value: Row) -> Self {
         User {
             id: value.get::<_, Uuid>("id"),
             name: value.get::<_, String>("name"),
@@ -45,19 +45,17 @@ impl PostgresDb {
         let id = Uuid::new_v4();
 
         let stmt =
-            "INSERT into users (id, name, email, password) VALUES($1, $2, $3, $4) RETURNING id";
+            "INSERT into users (id, name, email, password) VALUES ($1, $2, $3, $4) RETURNING *";
         let rows = client
             .query(
                 stmt,
                 &[&id, &new_user.name, &new_user.email, &new_user.password],
             )
             .await?;
-        let id = match rows.first() {
-            Some(row) => row.get::<_, Uuid>("id"),
-            None => return Err(Error::Internal("record not created".to_string(), None)),
-        };
-
-        self.read_user(id).await.map(|u| u.unwrap())
+        match rows.into_iter().next() {
+            Some(row) => Ok(row.into()),
+            None => Err(Error::Internal("record not created".to_string(), None)),
+        }
     }
 
     /// Reads a user with its id
@@ -66,7 +64,7 @@ impl PostgresDb {
 
         let stmt = "SELECT * FROM users WHERE id = $1";
         let rows = client.query(stmt, &[&id]).await?;
-        Ok(rows.first().map(|row| row.into()))
+        Ok(rows.into_iter().next().map(|row| row.into()))
     }
 
     /// Reads a user with its email
@@ -75,7 +73,7 @@ impl PostgresDb {
 
         let stmt = "SELECT * FROM users WHERE email = $1";
         let rows = client.query(stmt, &[&email]).await?;
-        Ok(rows.first().map(|row| row.into()))
+        Ok(rows.into_iter().next().map(|row| row.into()))
     }
 
     /// Update a user
@@ -107,18 +105,18 @@ impl PostgresDb {
             }
         } else {
             let stmt = format!(
-                "UPDATE users SET {} WHERE id=$1",
+                "UPDATE users SET {} WHERE id=$1 RETURNING *",
                 cols.iter()
                     .enumerate()
                     .map(|(i, c)| format!("{}=${}", c, i + 2))
                     .collect::<Vec<_>>()
                     .join(", ")
             );
-            let _res = client.execute(&stmt, &params).await?;
+            let rows = client.query(&stmt, &params).await?;
 
-            match self.read_user(id).await? {
-                Some(u) => Ok(u),
-                None => Err(Error::NotFound(format!("no user for id {id}"), None)),
+            match rows.into_iter().next() {
+                Some(row) => Ok(row.into()),
+                None => Err(Error::Internal("record not updated".to_string(), None)),
             }
         }
     }
