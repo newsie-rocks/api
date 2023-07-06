@@ -41,7 +41,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_tracer() {
-        let cfg = crate::config::AppConfig::load().await;
+        let cfg = crate::config::AppConfig::load();
         init_tracer(&cfg);
 
         info!("INFO before function");

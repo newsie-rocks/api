@@ -3,11 +3,11 @@
 use newsie_api::config::AppConfig;
 use salvo::prelude::*;
 
-#[tokio::main]
-async fn main() {
-    let cfg = AppConfig::load().await;
+fn main() {
+    let cfg = AppConfig::load();
     let router = newsie_api::http::get_router(&cfg);
     let version = env!("CARGO_PKG_VERSION");
     let openapi = OpenApi::new("Api", version).merge_router(&router);
-    println!("{}", openapi.to_yaml().unwrap());
+    let openapi_str = openapi.to_yaml().unwrap();
+    println!("{openapi_str}");
 }

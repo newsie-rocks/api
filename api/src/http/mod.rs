@@ -1,4 +1,4 @@
-//! Handlers
+//! REST API
 
 use salvo::prelude::*;
 use tracing::trace;
@@ -6,7 +6,6 @@ use tracing::trace;
 use crate::{config::AppConfig, svc::auth::AuthService};
 
 pub mod auth;
-pub mod error;
 pub mod mdw;
 
 /// Returns the router
@@ -72,7 +71,7 @@ mod tests {
     where
         F: Future<Output = ()>,
     {
-        let cfg = AppConfig::load().await;
+        let cfg = AppConfig::load();
         let service = get_service(&cfg);
         f(service).await;
     }

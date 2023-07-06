@@ -2,7 +2,7 @@
 //!
 //! # Features
 //!
-//! - **TBD**: document features here
+//! - **None**: document features here
 //!
 //! # Other binaries
 //!
@@ -13,15 +13,17 @@
 use salvo::prelude::*;
 
 pub mod config;
-pub mod data;
+pub mod db;
+pub mod error;
 pub mod http;
+pub mod mdl;
 pub mod svc;
 pub mod trace;
 
-/// Starts the hyper server
+/// Starts the server
 pub async fn start_server() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // Load the configuration
-    let cfg = config::AppConfig::load().await;
+    let cfg = config::AppConfig::load();
 
     // Init the tracing framework
     trace::init_tracer(&cfg);

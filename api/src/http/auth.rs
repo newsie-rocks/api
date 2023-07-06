@@ -5,10 +5,11 @@ use salvo::{oapi::extract::*, prelude::*};
 use serde::{Deserialize, Serialize};
 use tracing::trace;
 
-use crate::{http::error::HttpError, svc::auth::AuthService};
-
-// Re-exports
-pub use crate::svc::auth::{NewUser, User, UserFields};
+use crate::{
+    error::Error,
+    mdl::{NewUser, User, UserUpdateFields},
+    svc::auth::AuthService,
+};
 
 /// Signup response body
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
@@ -26,7 +27,7 @@ pub async fn signup(
     depot: &mut Depot,
     res: &mut Response,
     body: JsonBody<NewUser>,
-) -> Result<Json<SignupRespBody>, HttpError> {
+) -> Result<Json<SignupRespBody>, Error> {
     trace!("received request");
     let auth = depot.obtain::<AuthService>().unwrap();
     let new_user = body.into_inner();
@@ -68,7 +69,7 @@ pub async fn login(
     depot: &mut Depot,
     res: &mut Response,
     body: JsonBody<LoginReqBody>,
-) -> Result<Json<LoginRespBody>, HttpError> {
+) -> Result<Json<LoginRespBody>, Error> {
     trace!("received request");
     let auth = depot.obtain::<AuthService>().unwrap();
     let payload = body.into_inner();
@@ -95,14 +96,14 @@ pub struct GetUserRespBody {
 /// Fetches the current user
 #[endpoint]
 #[tracing::instrument(skip_all)]
-pub async fn get_user(depot: &mut Depot) -> Result<Json<GetUserRespBody>, HttpError> {
+pub async fn get_user(depot: &mut Depot) -> Result<Json<GetUserRespBody>, Error> {
     trace!("received request");
     let user = depot.obtain::<User>();
 
     let user = match user {
         Some(u) => u.clone(),
         None => {
-            return Err(HttpError::Unauthorized(
+            return Err(Error::Unauthenticated(
                 "not authenticated".to_string(),
                 None,
             ));
@@ -117,8 +118,8 @@ pub async fn get_user(depot: &mut Depot) -> Result<Json<GetUserRespBody>, HttpEr
 #[tracing::instrument(skip_all)]
 pub async fn update_user(
     depot: &mut Depot,
-    body: JsonBody<UserFields>,
-) -> Result<Json<GetUserRespBody>, HttpError> {
+    body: JsonBody<UserUpdateFields>,
+) -> Result<Json<GetUserRespBody>, Error> {
     trace!("received request");
     let auth = depot.obtain::<AuthService>().unwrap();
     let user = depot.obtain::<User>();
@@ -126,7 +127,7 @@ pub async fn update_user(
     let user_id = match user {
         Some(u) => u.id,
         None => {
-            return Err(HttpError::Unauthorized(
+            return Err(Error::Unauthenticated(
                 "not authenticated".to_string(),
                 None,
             ));
@@ -142,7 +143,7 @@ pub async fn update_user(
 /// The ID is retrieved from the token
 #[endpoint]
 #[tracing::instrument(skip_all)]
-pub async fn delete_user(depot: &mut Depot) -> Result<(), HttpError> {
+pub async fn delete_user(depot: &mut Depot) -> Result<(), Error> {
     trace!("received request");
     let auth = depot.obtain::<AuthService>().unwrap();
     let user = depot.obtain::<User>();
@@ -150,7 +151,7 @@ pub async fn delete_user(depot: &mut Depot) -> Result<(), HttpError> {
     let user_id = match user {
         Some(u) => u.id,
         None => {
-            return Err(HttpError::Unauthorized(
+            return Err(Error::Unauthenticated(
                 "not authenticated".to_string(),
                 None,
             ));
@@ -190,7 +191,7 @@ mod tests {
         Service,
     };
 
-    use crate::{config::AppConfig, http::get_service, svc::auth::NewUser};
+    use crate::{config::AppConfig, http::get_service};
 
     // Test runner to setup and cleanup a test
     async fn run_test<F>(f: impl Fn(Service, User, String) -> F)
@@ -198,7 +199,7 @@ mod tests {
         F: Future<Output = (Service, User, String)>,
     {
         // setup
-        let cfg = AppConfig::load().await;
+        let cfg = AppConfig::load();
         crate::trace::init_tracer(&cfg);
         let service = get_service(&cfg);
         let auth = AuthService::new(cfg.postgres.new_pool(), cfg.auth.secret.clone());
@@ -267,7 +268,7 @@ mod tests {
         run_test(|service, user, token| async {
             let res = TestClient::patch("http://localhost:3000/auth/me")
                 .add_header(AUTHORIZATION, format!("Bearer {token}"), true)
-                .json(&UserFields {
+                .json(&UserUpdateFields {
                     name: Some("new Name".to_string()),
                     email: None,
                     password: None,

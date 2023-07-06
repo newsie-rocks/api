@@ -3,13 +3,13 @@
 use salvo::{hyper::header::AUTHORIZATION, prelude::*};
 use tracing::trace;
 
-use crate::svc::auth::AuthService;
+use crate::{error::Error, svc::auth::AuthService};
 
-use super::{auth::AUTH_COOKIE_NAME, error::HttpError};
+use super::auth::AUTH_COOKIE_NAME;
 
 /// Middleware to authenticate the user
 #[handler]
-pub async fn authenticate(req: &mut Request, depot: &mut Depot) -> Result<(), HttpError> {
+pub async fn authenticate(req: &mut Request, depot: &mut Depot) -> Result<(), Error> {
     // NB: Context must be set before the user is extracted
     let auth = depot.obtain::<AuthService>().unwrap();
 
@@ -20,14 +20,14 @@ pub async fn authenticate(req: &mut Request, depot: &mut Depot) -> Result<(), Ht
             Ok(s) => match s.strip_prefix("Bearer ") {
                 Some(s) => token = Some(s.to_string()),
                 None => {
-                    return Err(HttpError::BadRequest(
+                    return Err(Error::InvalidRequest(
                         "Invalid authorization header".to_string(),
                         None,
                     ))
                 }
             },
             Err(err) => {
-                return Err(HttpError::BadRequest(
+                return Err(Error::InvalidRequest(
                     "Invalid authorization header".to_string(),
                     Some(err.to_string()),
                 ))

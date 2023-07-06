@@ -1,17 +1,20 @@
 //! Auth services
 
 use argon2::{password_hash, PasswordHasher, PasswordVerifier};
-use salvo::prelude::*;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::data::{error::StoreError, user::UserStore};
+use crate::{
+    db::postgres::PostgresDb,
+    error::Error,
+    mdl::{NewUser, User, UserUpdateFields},
+};
 
 /// Authentication service
 #[derive(Debug, Clone)]
 pub struct AuthService {
-    /// User store
-    pub store: UserStore,
+    /// Postgres db
+    pub db: PostgresDb,
     /// Secret used to sign the JWT token
     pub secret: String,
 }
@@ -19,104 +22,9 @@ pub struct AuthService {
 impl AuthService {
     /// Creates a new service instance
     pub fn new(postgres_pool: deadpool_postgres::Pool, secret: String) -> Self {
-        let store = UserStore::new(postgres_pool);
-        Self { store, secret }
+        let db = PostgresDb::new(postgres_pool);
+        Self { db, secret }
     }
-}
-
-/// Authentication service error
-#[derive(Debug, thiserror::Error)]
-pub enum AuthError {
-    /// Invalid JWT token
-    #[error("Invalid JWT token: {message}")]
-    InvalidToken {
-        /// Message
-        message: String,
-    },
-    /// User not found
-    #[error("Invalid user: {message}")]
-    UserNotFound {
-        /// Message
-        message: String,
-    },
-    /// Invalid credentials
-    #[error("Invalid credentials: {message}")]
-    InvalidCredentials {
-        /// Message
-        message: String,
-    },
-    /// Unauthorized
-    #[error("Unauthorized")]
-    Unauthorized {
-        /// Message
-        message: String,
-    },
-    /// Internal error
-    #[error("{message}")]
-    Internal {
-        /// Message
-        message: String,
-    },
-}
-
-impl From<jsonwebtoken::errors::Error> for AuthError {
-    fn from(value: jsonwebtoken::errors::Error) -> Self {
-        AuthError::InvalidToken {
-            message: format!("invalid token: {value}"),
-        }
-    }
-}
-
-impl From<StoreError> for AuthError {
-    fn from(value: StoreError) -> Self {
-        match value {
-            StoreError::Internal { message } => AuthError::Internal { message },
-        }
-    }
-}
-
-impl From<password_hash::Error> for AuthError {
-    fn from(value: password_hash::Error) -> Self {
-        AuthError::Internal {
-            message: format!("{value}"),
-        }
-    }
-}
-
-/// User
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
-pub struct User {
-    /// ID
-    pub id: Uuid,
-    /// Name
-    pub name: String,
-    /// Email
-    pub email: String,
-    /// Password
-    #[serde(skip)]
-    pub password: String,
-}
-
-/// New user
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct NewUser {
-    /// Name
-    pub name: String,
-    /// Email
-    pub email: String,
-    /// Password
-    pub password: String,
-}
-
-/// User update
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct UserFields {
-    /// Name
-    pub name: Option<String>,
-    /// Email
-    pub email: Option<String>,
-    /// Password
-    pub password: Option<String>,
 }
 
 /// Authentication JWT
@@ -132,74 +40,75 @@ struct AuthJwtClaims {
 
 impl AuthService {
     /// Creates a new [User]
-    pub async fn create(&self, mut new_user: NewUser) -> Result<User, AuthError> {
+    pub async fn create(&self, mut new_user: NewUser) -> Result<User, Error> {
         // check that the user with the email exists
         if let Some(u) = self
-            .store
-            .read_with_email(&new_user.email)
+            .db
+            .read_user_with_email(&new_user.email)
             .await
-            .map_err(AuthError::from)?
+            .map_err(Error::from)?
         {
-            return Err(AuthError::Unauthorized {
-                message: format!("user with email '{email}' already exists", email = u.email),
-            });
+            return Err(Error::InvalidRequest(
+                format!("user with email '{email}' already exists", email = u.email),
+                None,
+            ));
         };
 
         // Hash the password
         let hashed_pwd = hash_password(&new_user.password)?;
         new_user.password = hashed_pwd;
 
-        Ok(self.store.create(new_user).await?)
+        self.db.create_user(new_user).await
     }
 
     /// Queries a user with its ID
-    pub async fn read(&self, user_id: Uuid) -> Result<Option<User>, AuthError> {
-        Ok(self.store.read(user_id).await?)
+    pub async fn read(&self, user_id: Uuid) -> Result<Option<User>, Error> {
+        self.db.read_user(user_id).await
     }
 
     /// Updates a user
-    pub async fn update(&self, user_id: Uuid, mut fields: UserFields) -> Result<User, AuthError> {
+    pub async fn update(&self, user_id: Uuid, mut fields: UserUpdateFields) -> Result<User, Error> {
         // Hash the password before updating it
         if let Some(password) = fields.password.as_ref() {
             let hashed_pwd = hash_password(password)?;
             fields.password = Some(hashed_pwd);
         }
 
-        self.store.update(user_id, fields).await?;
-        self.store
-            .read(user_id)
+        self.db.update_user(user_id, fields).await?;
+        self.db
+            .read_user(user_id)
             .await?
-            .ok_or_else(|| AuthError::UserNotFound {
-                message: "no user".to_string(),
-            })
+            .ok_or_else(|| Error::NotFound("no user".to_string(), None))
     }
 
     /// Deletes a user
-    pub async fn delete(&self, user_id: Uuid) -> Result<(), AuthError> {
-        Ok(self.store.delete(user_id).await?)
+    pub async fn delete(&self, user_id: Uuid) -> Result<(), Error> {
+        self.db.delete_user(user_id).await
     }
 
     /// Login a new user
-    pub async fn login(&self, email: &str, password: &str) -> Result<User, AuthError> {
-        let user = self.store.read_with_email(email).await?;
+    pub async fn login(&self, email: &str, password: &str) -> Result<User, Error> {
+        let user = self.db.read_user_with_email(email).await?;
         if user.is_none() {
-            return Err(AuthError::UserNotFound {
-                message: format!("no user for email '{email}'"),
-            });
+            return Err(Error::NotFound(
+                format!("no user for email '{email}'"),
+                None,
+            ));
         }
         let user = user.unwrap();
 
         if !verify_password(&user.password, password)? {
-            return Err(AuthError::InvalidCredentials {
-                message: format!("invalid password for email '{email}'"),
-            });
+            return Err(Error::Unauthenticated(
+                format!("invalid password for email '{email}'"),
+                None,
+            ));
         }
 
         Ok(user)
     }
 
     /// Issues a JWT token for a user
-    pub fn issue_token(&self, user: &User) -> Result<String, AuthError> {
+    pub fn issue_token(&self, user: &User) -> Result<String, Error> {
         // define the token expiry
         let exp = time::OffsetDateTime::now_utc() + time::Duration::days(30);
 
@@ -220,7 +129,7 @@ impl AuthService {
     }
 
     /// Queries a user with a JWT token
-    pub async fn read_with_token(&self, token: &str) -> Result<Option<User>, AuthError> {
+    pub async fn read_with_token(&self, token: &str) -> Result<Option<User>, Error> {
         // Decode the token
         let claims = match jsonwebtoken::decode::<AuthJwtClaims>(
             token,
@@ -239,7 +148,7 @@ impl AuthService {
 }
 
 /// Hashes a password
-fn hash_password(password: &str) -> Result<String, AuthError> {
+fn hash_password(password: &str) -> Result<String, Error> {
     let salt = password_hash::SaltString::generate(&mut password_hash::rand_core::OsRng);
     let argon2 = argon2::Argon2::default();
     let hash = argon2.hash_password(password.as_bytes(), &salt)?;
@@ -247,7 +156,7 @@ fn hash_password(password: &str) -> Result<String, AuthError> {
 }
 
 /// Verifies a hashed password
-pub fn verify_password(hash: &str, password: &str) -> Result<bool, AuthError> {
+pub fn verify_password(hash: &str, password: &str) -> Result<bool, Error> {
     let parsed_hash = password_hash::PasswordHash::new(hash)?;
     let ok = argon2::Argon2::default()
         .verify_password(password.as_bytes(), &parsed_hash)
@@ -257,7 +166,7 @@ pub fn verify_password(hash: &str, password: &str) -> Result<bool, AuthError> {
 
 #[cfg(test)]
 mod tests {
-    use std::future::Future;
+    use crate::config::AppConfig;
 
     use super::*;
 
@@ -266,17 +175,9 @@ mod tests {
         Fake,
     };
 
-    use crate::{
-        config::AppConfig,
-        svc::auth::{NewUser, UserFields},
-    };
-
-    // Test runner to setup and cleanup a test
-    async fn run_test<F>(f: impl Fn(AuthService, User) -> F)
-    where
-        F: Future<Output = (AuthService, User)>,
-    {
-        let cfg = AppConfig::load().await;
+    /// Setup a test
+    async fn setup() -> (AuthService, User) {
+        let cfg = AppConfig::load();
         let service = AuthService::new(cfg.postgres.new_pool(), cfg.auth.secret.clone());
 
         // create dummy user
@@ -290,40 +191,36 @@ mod tests {
             })
             .await
             .unwrap();
+        (service, user)
+    }
 
-        // Run the test
-        let (service, user) = f(service, user).await;
-
-        // cleanup
+    /// Teardown
+    async fn teardown(service: AuthService, user: User) {
         service.delete(user.id).await.unwrap();
     }
 
     #[tokio::test]
     async fn test_update_user() {
-        run_test(|service, user| async {
-            let updated_user = service
-                .update(
-                    user.id,
-                    UserFields {
-                        name: Some("__test__update".to_string()),
-                        email: None,
-                        password: None,
-                    },
-                )
-                .await
-                .unwrap();
-            assert_eq!(updated_user.name, "__test__update".to_string());
-            (service, user)
-        })
-        .await;
+        let (service, user) = setup().await;
+        let updated_user = service
+            .update(
+                user.id,
+                UserUpdateFields {
+                    name: Some("__test__update".to_string()),
+                    email: None,
+                    password: None,
+                },
+            )
+            .await
+            .unwrap();
+        assert_eq!(updated_user.name, "__test__update".to_string());
+        teardown(service, user).await;
     }
 
     #[tokio::test]
     async fn test_issue_token() {
-        run_test(|service, user| async {
-            let _token = service.issue_token(&user).unwrap();
-            (service, user)
-        })
-        .await;
+        let (service, user) = setup().await;
+        let _token = service.issue_token(&user).unwrap();
+        teardown(service, user).await;
     }
 }

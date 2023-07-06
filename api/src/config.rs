@@ -34,7 +34,7 @@ pub enum AppConfigError {
 
 impl AppConfig {
     /// Loads a configuration from the environment
-    pub async fn load() -> Self {
+    pub fn load() -> Self {
         let config = Config::builder()
             .add_source(
                 config::Environment::with_prefix("APP")
@@ -158,9 +158,9 @@ mod tests {
     // Note this useful idiom: importing names from outer (for mod tests) scope.
     use super::*;
 
-    #[tokio::test]
-    async fn test_load_config() {
-        let cfg = AppConfig::load().await;
+    #[test]
+    fn test_load_config() {
+        let cfg = AppConfig::load();
 
         let server_host = std::env::var("APP_SERVER_HOST").unwrap();
         let server_port = std::env::var("APP_SERVER_PORT").unwrap();
@@ -181,7 +181,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_postgres_conn() {
-        let cfg = AppConfig::load().await;
+        let cfg = AppConfig::load();
 
         let postgres_pool = cfg.postgres.new_pool();
         let postgres_client = postgres_pool.get().await.unwrap();
@@ -192,7 +192,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_qdrant_conn() {
-        let cfg = AppConfig::load().await;
+        let cfg = AppConfig::load();
 
         let qdrant_client = cfg.qdrant.new_client();
         qdrant_client.health_check().await.unwrap();
