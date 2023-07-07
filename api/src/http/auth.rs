@@ -7,7 +7,7 @@ use tracing::trace;
 
 use crate::{
     error::Error,
-    mdl::{NewUser, User, UserUpdateFields},
+    mdl::{NewUser, User, UserUpdate},
     svc::auth::AuthService,
 };
 
@@ -32,7 +32,7 @@ pub async fn signup(
     let auth = depot.obtain::<AuthService>().unwrap();
     let new_user = body.into_inner();
 
-    let user = auth.create(new_user).await?;
+    let user = auth.create_user(new_user).await?;
     let token = auth.issue_token(&user)?;
     let auth_cookie = issue_auth_cookie(&token);
 
@@ -96,44 +96,30 @@ pub struct GetUserRespBody {
 /// Fetches the current user
 #[endpoint]
 #[tracing::instrument(skip_all)]
-pub async fn get_user(depot: &mut Depot) -> Result<Json<GetUserRespBody>, Error> {
+pub async fn get_me(depot: &mut Depot) -> Result<Json<GetUserRespBody>, Error> {
     trace!("received request");
-    let user = depot.obtain::<User>();
+    let user = depot.obtain::<User>().ok_or(Error::Unauthenticated(
+        "not authenticated".to_string(),
+        None,
+    ))?;
 
-    let user = match user {
-        Some(u) => u.clone(),
-        None => {
-            return Err(Error::Unauthenticated(
-                "not authenticated".to_string(),
-                None,
-            ));
-        }
-    };
-
-    Ok(Json(GetUserRespBody { user }))
+    Ok(Json(GetUserRespBody { user: user.clone() }))
 }
 
 /// Updates the current user
 #[endpoint]
 #[tracing::instrument(skip_all)]
-pub async fn update_user(
+pub async fn update_me(
     depot: &mut Depot,
-    body: JsonBody<UserUpdateFields>,
+    body: JsonBody<UserUpdate>,
 ) -> Result<Json<GetUserRespBody>, Error> {
     trace!("received request");
     let auth = depot.obtain::<AuthService>().unwrap();
-    let user = depot.obtain::<User>();
-
-    let user_id = match user {
-        Some(u) => u.id,
-        None => {
-            return Err(Error::Unauthenticated(
-                "not authenticated".to_string(),
-                None,
-            ));
-        }
-    };
-    let user = auth.update(user_id, body.into_inner()).await?;
+    let user = depot.obtain::<User>().ok_or(Error::Unauthenticated(
+        "not authenticated".to_string(),
+        None,
+    ))?;
+    let user = auth.update_user(user.id, body.into_inner()).await?;
 
     Ok(Json(GetUserRespBody { user }))
 }
@@ -143,21 +129,14 @@ pub async fn update_user(
 /// The ID is retrieved from the token
 #[endpoint]
 #[tracing::instrument(skip_all)]
-pub async fn delete_user(depot: &mut Depot) -> Result<(), Error> {
+pub async fn delete_me(depot: &mut Depot) -> Result<(), Error> {
     trace!("received request");
     let auth = depot.obtain::<AuthService>().unwrap();
-    let user = depot.obtain::<User>();
-
-    let user_id = match user {
-        Some(u) => u.id,
-        None => {
-            return Err(Error::Unauthenticated(
-                "not authenticated".to_string(),
-                None,
-            ));
-        }
-    };
-    auth.delete(user_id).await?;
+    let user = depot.obtain::<User>().ok_or(Error::Unauthenticated(
+        "not authenticated".to_string(),
+        None,
+    ))?;
+    auth.delete_user(user.id).await?;
 
     Ok(())
 }
@@ -191,7 +170,7 @@ mod tests {
         Service,
     };
 
-    use crate::{config::AppConfig, http::get_service};
+    use crate::{config::AppConfig, http::init_service};
 
     // Test runner to setup and cleanup a test
     async fn run_test<F>(f: impl Fn(Service, User, String) -> F)
@@ -201,7 +180,7 @@ mod tests {
         // setup
         let cfg = AppConfig::load();
         crate::trace::init_tracer(&cfg);
-        let service = get_service(&cfg);
+        let service = init_service(&cfg);
         let auth = AuthService::new(cfg.postgres.new_pool(), cfg.auth.secret.clone());
 
         // create test user
@@ -268,7 +247,7 @@ mod tests {
         run_test(|service, user, token| async {
             let res = TestClient::patch("http://localhost:3000/auth/me")
                 .add_header(AUTHORIZATION, format!("Bearer {token}"), true)
-                .json(&UserUpdateFields {
+                .json(&UserUpdate {
                     name: Some("new Name".to_string()),
                     email: None,
                     password: None,

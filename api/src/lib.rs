@@ -29,7 +29,7 @@ pub async fn start_server() -> Result<(), Box<dyn std::error::Error + Send + Syn
     trace::init_tracer(&cfg);
 
     // Create the HTTP service
-    let service = http::get_service(&cfg);
+    let service = http::init_service(&cfg);
 
     // Start the server
     let addr = cfg.server.addr().unwrap();

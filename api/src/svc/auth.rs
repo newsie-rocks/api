@@ -1,4 +1,4 @@
-//! Auth services
+//! Auth service
 
 use argon2::{password_hash, PasswordHasher, PasswordVerifier};
 use serde::{Deserialize, Serialize};
@@ -7,7 +7,7 @@ use uuid::Uuid;
 use crate::{
     db::postgres::PostgresDb,
     error::Error,
-    mdl::{NewUser, User, UserUpdateFields},
+    mdl::{NewUser, User, UserUpdate},
 };
 
 /// Authentication service
@@ -40,7 +40,7 @@ struct AuthJwtClaims {
 
 impl AuthService {
     /// Creates a new [User]
-    pub async fn create(&self, mut new_user: NewUser) -> Result<User, Error> {
+    pub async fn create_user(&self, mut new_user: NewUser) -> Result<User, Error> {
         // check that the user with the email exists
         if let Some(u) = self
             .db
@@ -67,35 +67,32 @@ impl AuthService {
     }
 
     /// Updates a user
-    pub async fn update(&self, user_id: Uuid, mut fields: UserUpdateFields) -> Result<User, Error> {
+    pub async fn update_user(&self, user_id: Uuid, mut fields: UserUpdate) -> Result<User, Error> {
         // Hash the password before updating it
         if let Some(password) = fields.password.as_ref() {
             let hashed_pwd = hash_password(password)?;
             fields.password = Some(hashed_pwd);
         }
 
-        self.db.update_user(user_id, fields).await?;
-        self.db
-            .read_user(user_id)
-            .await?
-            .ok_or_else(|| Error::NotFound("no user".to_string(), None))
+        self.db.update_user(user_id, fields).await
     }
 
     /// Deletes a user
-    pub async fn delete(&self, user_id: Uuid) -> Result<(), Error> {
+    pub async fn delete_user(&self, user_id: Uuid) -> Result<(), Error> {
         self.db.delete_user(user_id).await
     }
 
     /// Login a new user
     pub async fn login(&self, email: &str, password: &str) -> Result<User, Error> {
-        let user = self.db.read_user_with_email(email).await?;
-        if user.is_none() {
-            return Err(Error::NotFound(
-                format!("no user for email '{email}'"),
-                None,
-            ));
-        }
-        let user = user.unwrap();
+        let user = match self.db.read_user_with_email(email).await? {
+            Some(u) => u,
+            None => {
+                return Err(Error::NotFound(
+                    format!("no user for email '{email}'"),
+                    None,
+                ))
+            }
+        };
 
         if !verify_password(&user.password, password)? {
             return Err(Error::Unauthenticated(
@@ -118,32 +115,24 @@ impl AuthService {
             user_id: user.id,
         };
 
-        match jsonwebtoken::encode(
+        Ok(jsonwebtoken::encode(
             &jsonwebtoken::Header::default(),
             &claims,
             &jsonwebtoken::EncodingKey::from_secret(self.secret.as_bytes()),
-        ) {
-            Ok(t) => Ok(t),
-            Err(err) => Err(err.into()),
-        }
+        )?)
     }
 
     /// Queries a user with a JWT token
     pub async fn read_with_token(&self, token: &str) -> Result<Option<User>, Error> {
         // Decode the token
-        let claims = match jsonwebtoken::decode::<AuthJwtClaims>(
+        let token_data = jsonwebtoken::decode::<AuthJwtClaims>(
             token,
             &jsonwebtoken::DecodingKey::from_secret(self.secret.as_bytes()),
             &jsonwebtoken::Validation::default(),
-        ) {
-            Ok(data) => data.claims,
-            Err(err) => {
-                return Err(err.into());
-            }
-        };
+        )?;
 
         // Query the user by ID
-        self.read(claims.user_id).await
+        self.read(token_data.claims.user_id).await
     }
 }
 
@@ -184,7 +173,7 @@ mod tests {
         let name: String = Name().fake();
         let email: String = FreeEmail().fake();
         let user = service
-            .create(NewUser {
+            .create_user(NewUser {
                 name,
                 email,
                 password: "dummy".to_string(),
@@ -196,16 +185,16 @@ mod tests {
 
     /// Teardown
     async fn teardown(service: AuthService, user: User) {
-        service.delete(user.id).await.unwrap();
+        service.delete_user(user.id).await.unwrap();
     }
 
     #[tokio::test]
     async fn test_update_user() {
         let (service, user) = setup().await;
         let updated_user = service
-            .update(
+            .update_user(
                 user.id,
-                UserUpdateFields {
+                UserUpdate {
                     name: Some("__test__update".to_string()),
                     email: None,
                     password: None,

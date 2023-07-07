@@ -5,7 +5,7 @@ use uuid::Uuid;
 
 use crate::{
     error::Error,
-    mdl::{NewUser, User, UserUpdateFields},
+    mdl::{NewUser, User, UserUpdate},
 };
 
 use super::PostgresDb;
@@ -26,14 +26,17 @@ impl PostgresDb {
     pub async fn create_table_users(&self) -> Result<(), Error> {
         let client = self.client().await?;
 
-        let stmt = "
-        CREATE TABLE IF NOT EXISTS users (
-            id          UUID PRIMARY KEY,
-            name        TEXT NOT NULL,
-            email       TEXT NOT NULL,
-            password    TEXT NOT NULL
-        )";
-        Ok(client.batch_execute(stmt).await?)
+        Ok(client
+            .batch_execute(
+                "
+                    CREATE TABLE IF NOT EXISTS users (
+                        id          UUID PRIMARY KEY,
+                        name        TEXT NOT NULL,
+                        email       TEXT NOT NULL,
+                        password    TEXT NOT NULL
+                    )",
+            )
+            .await?)
     }
 
     /// Creates a new user
@@ -42,42 +45,42 @@ impl PostgresDb {
     pub async fn create_user(&self, new_user: NewUser) -> Result<User, Error> {
         let client = self.client().await?;
 
-        let id = Uuid::new_v4();
-
-        let stmt =
-            "INSERT into users (id, name, email, password) VALUES ($1, $2, $3, $4) RETURNING *";
-        let rows = client
-            .query(
-                stmt,
-                &[&id, &new_user.name, &new_user.email, &new_user.password],
+        Ok(client
+            .query_one(
+                "INSERT into users (id, name, email, password) VALUES ($1, $2, $3, $4) RETURNING *",
+                &[
+                    &Uuid::new_v4(),
+                    &new_user.name,
+                    &new_user.email,
+                    &new_user.password,
+                ],
             )
-            .await?;
-        match rows.into_iter().next() {
-            Some(row) => Ok(row.into()),
-            None => Err(Error::Internal("record not created".to_string(), None)),
-        }
+            .await?
+            .into())
     }
 
     /// Reads a user with its id
     pub async fn read_user(&self, id: Uuid) -> Result<Option<User>, Error> {
         let client = self.client().await?;
 
-        let stmt = "SELECT * FROM users WHERE id = $1";
-        let rows = client.query(stmt, &[&id]).await?;
-        Ok(rows.into_iter().next().map(|row| row.into()))
+        Ok(client
+            .query_opt("SELECT * FROM users WHERE id = $1", &[&id])
+            .await?
+            .map(|row| row.into()))
     }
 
     /// Reads a user with its email
     pub async fn read_user_with_email(&self, email: &str) -> Result<Option<User>, Error> {
         let client = self.client().await?;
 
-        let stmt = "SELECT * FROM users WHERE email = $1";
-        let rows = client.query(stmt, &[&email]).await?;
-        Ok(rows.into_iter().next().map(|row| row.into()))
+        Ok(client
+            .query_opt("SELECT * FROM users WHERE email = $1", &[&email])
+            .await?
+            .map(|row| row.into()))
     }
 
     /// Update a user
-    pub async fn update_user(&self, id: Uuid, fields: UserUpdateFields) -> Result<User, Error> {
+    pub async fn update_user(&self, id: Uuid, fields: UserUpdate) -> Result<User, Error> {
         let client = self.client().await?;
 
         let mut cols: Vec<&str> = vec![];
@@ -112,12 +115,7 @@ impl PostgresDb {
                     .collect::<Vec<_>>()
                     .join(", ")
             );
-            let rows = client.query(&stmt, &params).await?;
-
-            match rows.into_iter().next() {
-                Some(row) => Ok(row.into()),
-                None => Err(Error::Internal("record not updated".to_string(), None)),
-            }
+            Ok(client.query_one(&stmt, &params).await?.into())
         }
     }
 
@@ -125,9 +123,9 @@ impl PostgresDb {
     pub async fn delete_user(&self, id: Uuid) -> Result<(), Error> {
         let client = self.client().await?;
 
-        let stmt = "DELETE FROM users WHERE id=$1";
-        let _res = client.execute(stmt, &[&id]).await?;
-
+        let _res = client
+            .execute("DELETE FROM users WHERE id=$1", &[&id])
+            .await?;
         Ok(())
     }
 }
@@ -199,7 +197,7 @@ pub mod tests {
         let user = db
             .update_user(
                 test_user.id,
-                UserUpdateFields {
+                UserUpdate {
                     name: Some(new_name.clone()),
                     email: None,
                     password: None,

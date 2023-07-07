@@ -1,13 +1,13 @@
 //! Generates the OpenAPI documentation
 
-use newsie_api::config::AppConfig;
-use salvo::prelude::*;
+use newsie_api::{
+    config::AppConfig,
+    http::{gen_openapi_specs, init_router},
+};
 
 fn main() {
     let cfg = AppConfig::load();
-    let router = newsie_api::http::get_router(&cfg);
-    let version = env!("CARGO_PKG_VERSION");
-    let openapi = OpenApi::new("Api", version).merge_router(&router);
-    let openapi_str = openapi.to_yaml().unwrap();
-    println!("{openapi_str}");
+    let router = init_router(&cfg);
+    let openapi = gen_openapi_specs(&router);
+    println!("{}", openapi.to_yaml().unwrap());
 }

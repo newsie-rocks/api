@@ -30,7 +30,7 @@ pub struct NewUser {
 
 /// User update fields
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
-pub struct UserUpdateFields {
+pub struct UserUpdate {
     /// Name
     pub name: Option<String>,
     /// Email
@@ -52,20 +52,15 @@ pub struct Feed {
     pub name: Option<String>,
 }
 
-/// New uer feed
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
-pub struct NewFeed {
-    /// Feed url
-    pub url: String,
-    /// Feed name
-    pub name: Option<String>,
-}
-
-/// Feed fields (for update)
+/// Feed update
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct FeedUpdateFields {
+pub struct FeedUpdate {
+    /// ID
+    ///
+    /// If set, feed already exists
+    pub id: Option<Uuid>,
     /// Url
-    pub url: Option<String>,
+    pub url: String,
     /// Name
-    pub name: Option<Option<String>>,
+    pub name: Option<String>,
 }
