@@ -8,7 +8,7 @@ use crate::{
     mdl::{Feed, FeedUpdate},
 };
 
-use super::PostgresDb;
+use super::PostgresClient;
 
 impl From<Row> for Feed {
     fn from(value: Row) -> Self {
@@ -21,7 +21,7 @@ impl From<Row> for Feed {
     }
 }
 
-impl PostgresDb {
+impl PostgresClient {
     /// Creates the `feeds` table
     pub async fn create_table_feeds(&self) -> Result<(), Error> {
         let client = self.client().await?;
@@ -136,13 +136,13 @@ mod tests {
     use crate::mdl::User;
 
     /// Initializes the user store
-    fn init_db() -> PostgresDb {
+    fn init_db() -> PostgresClient {
         let cfg = AppConfig::load();
-        PostgresDb::new(cfg.postgres.new_pool())
+        PostgresClient::new(cfg.postgres.new_pool())
     }
 
     /// Setup a test
-    pub async fn setup() -> (PostgresDb, User, Vec<Feed>) {
+    pub async fn setup() -> (PostgresClient, User, Vec<Feed>) {
         let (db, user) = setup_test_user().await;
 
         let feeds = db
@@ -167,7 +167,7 @@ mod tests {
     }
 
     /// Teardown a test
-    async fn teardown(db: PostgresDb, user: User) {
+    async fn teardown(db: PostgresClient, user: User) {
         db.delete_user_feeds(user.id).await.unwrap();
         teardown_test_user(db, user).await;
     }

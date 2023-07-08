@@ -4,6 +4,8 @@ use salvo::prelude::ToSchema;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+use crate::db::postgres::util::Vector;
+
 /// User
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct User {
@@ -63,4 +65,19 @@ pub struct FeedUpdate {
     pub url: String,
     /// Name
     pub name: Option<String>,
+}
+
+/// An article
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct Article {
+    /// ID
+    pub id: Uuid,
+    /// Url
+    pub url: String,
+    /// Summary
+    pub summary: String,
+    /// Keywords
+    pub keywords: Vec<String>,
+    /// Embeddings (1536 values)
+    pub embeddings: Vector,
 }

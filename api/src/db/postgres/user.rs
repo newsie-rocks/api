@@ -8,7 +8,7 @@ use crate::{
     mdl::{NewUser, User, UserUpdate},
 };
 
-use super::PostgresDb;
+use super::PostgresClient;
 
 impl From<Row> for User {
     fn from(value: Row) -> Self {
@@ -21,7 +21,7 @@ impl From<Row> for User {
     }
 }
 
-impl PostgresDb {
+impl PostgresClient {
     /// Creates the `users` table
     pub async fn create_table_users(&self) -> Result<(), Error> {
         let client = self.client().await?;
@@ -142,13 +142,13 @@ pub mod tests {
     };
 
     /// Initializes the user store
-    fn init_db() -> PostgresDb {
+    fn init_db() -> PostgresClient {
         let cfg = AppConfig::load();
-        PostgresDb::new(cfg.postgres.new_pool())
+        PostgresClient::new(cfg.postgres.new_pool())
     }
 
     /// Setup a test
-    pub async fn setup_test_user() -> (PostgresDb, User) {
+    pub async fn setup_test_user() -> (PostgresClient, User) {
         let db = init_db();
         let name: String = Name().fake();
         let email: String = FreeEmail().fake();
@@ -164,7 +164,7 @@ pub mod tests {
     }
 
     /// Teardown a test
-    pub async fn teardown_test_user(db: PostgresDb, user: User) {
+    pub async fn teardown_test_user(db: PostgresClient, user: User) {
         db.delete_user(user.id).await.unwrap();
     }
 

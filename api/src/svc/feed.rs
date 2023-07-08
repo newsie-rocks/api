@@ -3,7 +3,7 @@
 use uuid::Uuid;
 
 use crate::{
-    db::postgres::PostgresDb,
+    db::postgres::PostgresClient,
     error::Error,
     mdl::{Feed, FeedUpdate},
 };
@@ -12,14 +12,15 @@ use crate::{
 #[derive(Debug, Clone)]
 pub struct FeedService {
     /// Postgres db
-    pub db: PostgresDb,
+    pub db: PostgresClient,
 }
 
 impl FeedService {
     /// Creates a new service instance
-    pub fn new(postgres_pool: deadpool_postgres::Pool) -> Self {
-        let db = PostgresDb::new(postgres_pool);
-        Self { db }
+    pub fn new(postgres_client: PostgresClient) -> Self {
+        Self {
+            db: postgres_client,
+        }
     }
 }
 

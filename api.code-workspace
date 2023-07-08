@@ -5,19 +5,9 @@
     }
   ],
   "settings": {
-    "cSpell.words": [
-      "dbname",
-      "deadpool",
-      "jsonwebtoken",
-      "mehhhh",
-      "Middlewares",
-      "openapi",
-      "opentelemetry",
-      "sqlx",
-      "thiserror",
-      "utoipa"
+    "rust-analyzer.linkedProjects": [
+      "./Cargo.toml"
     ],
-    "rust-analyzer.linkedProjects": ["./Cargo.toml"],
-    "cSpell.diagnosticLevel": "Hint"
+    "rust-analyzer.runnables.extraEnv": null
   }
 }

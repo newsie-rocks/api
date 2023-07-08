@@ -2,12 +2,14 @@
 
 use newsie_api::{
     config::AppConfig,
-    http::{gen_openapi_specs, init_router},
+    http::{gen_openapi_specs, init_api_services, init_router},
 };
 
-fn main() {
+#[tokio::main]
+async fn main() {
     let cfg = AppConfig::load();
-    let router = init_router(&cfg);
+    let api_services = init_api_services(&cfg).await.unwrap();
+    let router = init_router(api_services).await;
     let openapi = gen_openapi_specs(&router);
     println!("{}", openapi.to_yaml().unwrap());
 }

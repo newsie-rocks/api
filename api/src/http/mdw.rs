@@ -3,15 +3,15 @@
 use salvo::{hyper::header::AUTHORIZATION, prelude::*};
 use tracing::trace;
 
-use crate::{error::Error, svc::auth::AuthService};
+use crate::error::Error;
 
-use super::auth::AUTH_COOKIE_NAME;
+use super::{auth::AUTH_COOKIE_NAME, ApiServices};
 
 /// Middleware to authenticate the user
 #[handler]
 pub async fn authenticate(req: &mut Request, depot: &mut Depot) -> Result<(), Error> {
     // NB: Context must be set before the user is extracted
-    let auth = depot.obtain::<AuthService>().unwrap();
+    let services = depot.obtain::<ApiServices>().unwrap();
 
     // Extract the auth token from the AUTHORIZATION header
     let mut token = None;
@@ -45,7 +45,7 @@ pub async fn authenticate(req: &mut Request, depot: &mut Depot) -> Result<(), Er
     // Read the user and populate the context
     if let Some(token) = token {
         trace!(token, "auth token");
-        let user = auth.read_with_token(&token).await?;
+        let user = services.auth.read_with_token(&token).await?;
         trace!(?user, "auth user");
         if let Some(user) = user {
             depot.inject(user);

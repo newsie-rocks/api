@@ -7,8 +7,8 @@ use tracing::trace;
 
 use crate::{
     error::Error,
+    http::ApiServices,
     mdl::{NewUser, User, UserUpdate},
-    svc::auth::AuthService,
 };
 
 /// Signup response body
@@ -29,11 +29,11 @@ pub async fn signup(
     body: JsonBody<NewUser>,
 ) -> Result<Json<SignupRespBody>, Error> {
     trace!("received request");
-    let auth = depot.obtain::<AuthService>().unwrap();
-    let new_user = body.into_inner();
+    let services = depot.obtain::<ApiServices>().unwrap();
 
-    let user = auth.create_user(new_user).await?;
-    let token = auth.issue_token(&user)?;
+    let new_user = body.into_inner();
+    let user = services.auth.create_user(new_user).await?;
+    let token = services.auth.issue_token(&user)?;
     let auth_cookie = issue_auth_cookie(&token);
 
     res.status_code(StatusCode::CREATED);
@@ -71,11 +71,14 @@ pub async fn login(
     body: JsonBody<LoginReqBody>,
 ) -> Result<Json<LoginRespBody>, Error> {
     trace!("received request");
-    let auth = depot.obtain::<AuthService>().unwrap();
-    let payload = body.into_inner();
+    let services = depot.obtain::<ApiServices>().unwrap();
 
-    let user = auth.login(&payload.email, &payload.password).await?;
-    let token = auth.issue_token(&user)?;
+    let payload = body.into_inner();
+    let user = services
+        .auth
+        .login(&payload.email, &payload.password)
+        .await?;
+    let token = services.auth.issue_token(&user)?;
     let auth_cookie = issue_auth_cookie(&token);
 
     res.status_code(StatusCode::OK);
@@ -114,12 +117,16 @@ pub async fn update_me(
     body: JsonBody<UserUpdate>,
 ) -> Result<Json<GetUserRespBody>, Error> {
     trace!("received request");
-    let auth = depot.obtain::<AuthService>().unwrap();
+    let services = depot.obtain::<ApiServices>().unwrap();
     let user = depot.obtain::<User>().ok_or(Error::Unauthenticated(
         "not authenticated".to_string(),
         None,
     ))?;
-    let user = auth.update_user(user.id, body.into_inner()).await?;
+
+    let user = services
+        .auth
+        .update_user(user.id, body.into_inner())
+        .await?;
 
     Ok(Json(GetUserRespBody { user }))
 }
@@ -131,12 +138,13 @@ pub async fn update_me(
 #[tracing::instrument(skip_all)]
 pub async fn delete_me(depot: &mut Depot) -> Result<(), Error> {
     trace!("received request");
-    let auth = depot.obtain::<AuthService>().unwrap();
+    let services = depot.obtain::<ApiServices>().unwrap();
     let user = depot.obtain::<User>().ok_or(Error::Unauthenticated(
         "not authenticated".to_string(),
         None,
     ))?;
-    auth.delete_user(user.id).await?;
+
+    services.auth.delete_user(user.id).await?;
 
     Ok(())
 }
@@ -156,8 +164,6 @@ pub fn issue_auth_cookie(token: &str) -> Cookie<'static> {
 
 #[cfg(test)]
 mod tests {
-    use std::future::Future;
-
     use super::*;
 
     use fake::{
@@ -170,18 +176,18 @@ mod tests {
         Service,
     };
 
-    use crate::{config::AppConfig, http::init_service};
+    use crate::{
+        config::AppConfig, db::postgres::PostgresClient, http::init_service, svc::auth::AuthService,
+    };
 
-    // Test runner to setup and cleanup a test
-    async fn run_test<F>(f: impl Fn(Service, User, String) -> F)
-    where
-        F: Future<Output = (Service, User, String)>,
-    {
+    // Setup a test
+    async fn setup() -> (Service, User, String) {
         // setup
         let cfg = AppConfig::load();
         crate::trace::init_tracer(&cfg);
-        let service = init_service(&cfg);
-        let auth = AuthService::new(cfg.postgres.new_pool(), cfg.auth.secret.clone());
+        let service = init_service(&cfg).await;
+        let postgres_client = PostgresClient::new(cfg.postgres.new_pool());
+        let auth = AuthService::new(postgres_client, cfg.auth.secret.clone());
 
         // create test user
         let name: String = Name().fake();
@@ -197,13 +203,14 @@ mod tests {
         let body = res.take_json::<SignupRespBody>().await.unwrap();
         let user = body.user;
 
-        // issue the token and set the context
+        // issue the token
         let token = auth.issue_token(&user).unwrap();
 
-        // Run the test
-        let (service, _ctx, token) = f(service, user, token).await;
+        (service, user, token)
+    }
 
-        // cleanup
+    /// Teardown a test
+    async fn teardown(service: Service, token: String) {
         let res = TestClient::delete("http://localhost:3000/auth/me")
             .add_header(AUTHORIZATION, format!("Bearer {token}"), true)
             .send(&service)
@@ -215,48 +222,42 @@ mod tests {
 
     #[tokio::test]
     async fn test_login() {
-        run_test(|service, user, token| async {
-            let res = TestClient::post("http://localhost:3000/auth/login")
-                .json(&LoginReqBody {
-                    email: user.email.clone(),
-                    password: "1234".to_string(),
-                })
-                .send(&service)
-                .await;
-            assert_eq!(res.status_code.unwrap(), StatusCode::OK);
-            (service, user, token)
-        })
-        .await;
+        let (service, user, token) = setup().await;
+        let res = TestClient::post("http://localhost:3000/auth/login")
+            .json(&LoginReqBody {
+                email: user.email.clone(),
+                password: "1234".to_string(),
+            })
+            .send(&service)
+            .await;
+        assert_eq!(res.status_code.unwrap(), StatusCode::OK);
+        teardown(service, token).await;
     }
 
     #[tokio::test]
     async fn test_me_get() {
-        run_test(|service, user, token| async {
-            let res = TestClient::get("http://localhost:3000/auth/me")
-                .add_header(AUTHORIZATION, format!("Bearer {token}"), true)
-                .send(&service)
-                .await;
-            assert_eq!(res.status_code.unwrap(), StatusCode::OK);
-            (service, user, token)
-        })
-        .await;
+        let (service, _user, token) = setup().await;
+        let res = TestClient::get("http://localhost:3000/auth/me")
+            .add_header(AUTHORIZATION, format!("Bearer {token}"), true)
+            .send(&service)
+            .await;
+        assert_eq!(res.status_code.unwrap(), StatusCode::OK);
+        teardown(service, token).await;
     }
 
     #[tokio::test]
     async fn test_me_update() {
-        run_test(|service, user, token| async {
-            let res = TestClient::patch("http://localhost:3000/auth/me")
-                .add_header(AUTHORIZATION, format!("Bearer {token}"), true)
-                .json(&UserUpdate {
-                    name: Some("new Name".to_string()),
-                    email: None,
-                    password: None,
-                })
-                .send(&service)
-                .await;
-            assert_eq!(res.status_code.unwrap(), StatusCode::OK);
-            (service, user, token)
-        })
-        .await;
+        let (service, _user, token) = setup().await;
+        let res = TestClient::patch("http://localhost:3000/auth/me")
+            .add_header(AUTHORIZATION, format!("Bearer {token}"), true)
+            .json(&UserUpdate {
+                name: Some("new Name".to_string()),
+                email: None,
+                password: None,
+            })
+            .send(&service)
+            .await;
+        assert_eq!(res.status_code.unwrap(), StatusCode::OK);
+        teardown(service, token).await;
     }
 }

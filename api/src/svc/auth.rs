@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::{
-    db::postgres::PostgresDb,
+    db::postgres::PostgresClient,
     error::Error,
     mdl::{NewUser, User, UserUpdate},
 };
@@ -14,16 +14,15 @@ use crate::{
 #[derive(Debug, Clone)]
 pub struct AuthService {
     /// Postgres db
-    pub db: PostgresDb,
+    pub db: PostgresClient,
     /// Secret used to sign the JWT token
     pub secret: String,
 }
 
 impl AuthService {
     /// Creates a new service instance
-    pub fn new(postgres_pool: deadpool_postgres::Pool, secret: String) -> Self {
-        let db = PostgresDb::new(postgres_pool);
-        Self { db, secret }
+    pub fn new(client: PostgresClient, secret: String) -> Self {
+        Self { db: client, secret }
     }
 }
 
@@ -167,7 +166,8 @@ mod tests {
     /// Setup a test
     async fn setup() -> (AuthService, User) {
         let cfg = AppConfig::load();
-        let service = AuthService::new(cfg.postgres.new_pool(), cfg.auth.secret.clone());
+        let postgres_client = PostgresClient::new(cfg.postgres.new_pool());
+        let service = AuthService::new(postgres_client, cfg.auth.secret.clone());
 
         // create dummy user
         let name: String = Name().fake();

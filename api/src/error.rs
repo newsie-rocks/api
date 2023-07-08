@@ -129,3 +129,9 @@ impl EndpointOutRegister for Error {
         operation.responses.insert("500", res);
     }
 }
+
+impl From<async_openai::error::OpenAIError> for Error {
+    fn from(value: async_openai::error::OpenAIError) -> Self {
+        Error::Internal(format!("OpenAI error ({value})"), None)
+    }
+}

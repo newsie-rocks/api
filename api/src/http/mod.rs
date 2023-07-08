@@ -11,22 +11,62 @@ use tracing::trace;
 
 use crate::{
     config::AppConfig,
-    svc::{auth::AuthService, feed::FeedService},
+    db::postgres::PostgresClient,
+    error::Error,
+    svc::{art::ArticleService, auth::AuthService, feed::FeedService},
 };
 
+pub mod article;
 pub mod auth;
 pub mod feed;
 pub mod mdw;
 
-/// Initializes the router
-pub fn init_router(cfg: &AppConfig) -> Router {
-    // init the services
-    let auth_service = AuthService::new(cfg.postgres.new_pool(), cfg.auth.secret.clone());
-    let feed_service = FeedService::new(cfg.postgres.new_pool());
+/// API services
+#[derive(Clone)]
+pub struct ApiServices {
+    /// Authentication service
+    pub auth: AuthService,
+    /// Feeds service
+    pub feeds: FeedService,
+    /// Articles service
+    pub art: ArticleService,
+}
 
+/// Initializes the HTTP service
+pub async fn init_service(cfg: &AppConfig) -> Service {
+    let services = init_api_services(cfg).await.unwrap();
+    let router = init_router(services).await;
+
+    // add the OpenAPI routes to the service
+    let openapi = gen_openapi_specs(&router);
+    let router = router
+        .push(openapi.into_router("/openapi"))
+        .push(SwaggerUi::new("/openapi").into_router("/openapi/ui"));
+
+    Service::new(router)
+}
+
+/// Initializes the API services
+pub async fn init_api_services(cfg: &AppConfig) -> Result<ApiServices, Error> {
+    // init the Postgres client
+    let postgres_pool = cfg.postgres.new_pool();
+    let postgres_client = PostgresClient::new(postgres_pool);
+    postgres_client.init_schema().await?;
+
+    // init the OpenAI client
+    let openai_client = cfg.openai.new_client();
+
+    Ok(ApiServices {
+        auth: AuthService::new(postgres_client.clone(), cfg.auth.secret.clone()),
+        feeds: FeedService::new(postgres_client.clone()),
+        art: ArticleService::new(postgres_client, openai_client),
+    })
+}
+
+/// Initializes the router
+pub async fn init_router(services: ApiServices) -> Router {
     Router::new()
-        .hoop(salvo::affix::inject(auth_service))
-        .hoop(salvo::affix::inject(feed_service))
+        .hoop(salvo::affix::inject(services))
         .hoop(mdw::authenticate)
         .get(root)
         .push(Router::with_path("/health").get(healthcheck))
@@ -46,19 +86,7 @@ pub fn init_router(cfg: &AppConfig) -> Router {
                 .get(feed::get_feeds)
                 .put(feed::put_feeds),
         )
-}
-
-/// Initializes the service
-pub fn init_service(cfg: &AppConfig) -> Service {
-    let router = init_router(cfg);
-
-    // add the OpenAPI routes
-    let openapi = gen_openapi_specs(&router);
-    let router = router
-        .push(openapi.into_router("/openapi"))
-        .push(SwaggerUi::new("/openapi").into_router("/openapi/ui"));
-
-    Service::new(router)
+        .push(Router::with_path("/articles").put(article::post_articles))
 }
 
 /// Generates the OpenAPI specs
@@ -93,41 +121,31 @@ pub async fn healthcheck() -> &'static str {
 
 #[cfg(test)]
 mod tests {
-    use std::future::Future;
-
     use super::*;
 
     use salvo::test::TestClient;
 
     // Test runner to setup and cleanup a test
-    async fn run_test<F>(f: impl Fn(Service) -> F)
-    where
-        F: Future<Output = ()>,
-    {
+    async fn setup() -> Service {
         let cfg = AppConfig::load();
-        let service = init_service(&cfg);
-        f(service).await;
+        init_service(&cfg).await
     }
 
     #[tokio::test]
     async fn test_root() {
-        run_test(|service| async move {
-            let res = TestClient::get("http://localhost:3000")
-                .send(&service)
-                .await;
-            assert_eq!(res.status_code.unwrap(), StatusCode::OK);
-        })
-        .await;
+        let service = setup().await;
+        let res = TestClient::get("http://localhost:3000")
+            .send(&service)
+            .await;
+        assert_eq!(res.status_code.unwrap(), StatusCode::OK);
     }
 
     #[tokio::test]
     async fn test_healthcheck() {
-        run_test(|service| async move {
-            let res = TestClient::get("http://localhost:3000/health")
-                .send(&service)
-                .await;
-            assert_eq!(res.status_code.unwrap(), StatusCode::OK);
-        })
-        .await;
+        let service = setup().await;
+        let res = TestClient::get("http://localhost:3000/health")
+            .send(&service)
+            .await;
+        assert_eq!(res.status_code.unwrap(), StatusCode::OK);
     }
 }

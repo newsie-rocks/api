@@ -10,6 +10,7 @@
 
 #![deny(missing_docs)]
 
+use crate::config::AppConfig;
 use salvo::prelude::*;
 
 pub mod config;
@@ -21,17 +22,14 @@ pub mod svc;
 pub mod trace;
 
 /// Starts the server
-pub async fn start_server() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    // Load the configuration
-    let cfg = config::AppConfig::load();
-
-    // Init the tracing framework
+pub async fn start_server(cfg: AppConfig) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    // init the tracing framework
     trace::init_tracer(&cfg);
 
-    // Create the HTTP service
-    let service = http::init_service(&cfg);
+    // create the HTTP service
+    let service = http::init_service(&cfg).await;
 
-    // Start the server
+    // start the server
     let addr = cfg.server.addr().unwrap();
     let acceptor = TcpListener::new(addr).bind().await;
     eprintln!();

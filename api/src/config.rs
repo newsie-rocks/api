@@ -3,7 +3,7 @@
 use std::{net::SocketAddr, str::FromStr};
 
 use config::Config;
-use qdrant_client::prelude::*;
+use dotenv::dotenv;
 use serde::Deserialize;
 
 /// Application configuration
@@ -13,8 +13,8 @@ pub struct AppConfig {
     pub server: ServerConfig,
     /// PostGreSQL config
     pub postgres: PostGresConfig,
-    /// Qdrant config
-    pub qdrant: QdrantConfig,
+    /// OpenAI config
+    pub openai: OpenAiConfig,
     /// Auth configuration
     pub auth: AuthConfig,
     /// Trace configuration
@@ -35,6 +35,8 @@ pub enum AppConfigError {
 impl AppConfig {
     /// Loads a configuration from the environment
     pub fn load() -> Self {
+        dotenv().ok();
+
         let config = Config::builder()
             .add_source(
                 config::Environment::with_prefix("APP")
@@ -120,26 +122,21 @@ impl PostGresConfig {
     }
 }
 
-/// Qdrant configuration
+/// OpenAI configuration
 #[derive(Debug, Deserialize, Clone)]
-pub struct QdrantConfig {
-    /// URL connection string
-    pub url: String,
+pub struct OpenAiConfig {
+    /// API key
+    pub key: String,
 }
 
-impl Default for QdrantConfig {
-    fn default() -> Self {
-        Self {
-            url: "http://localhost:6334".into(),
-        }
-    }
-}
+/// OpenAI client
+pub type OpenAiClient = async_openai::Client<async_openai::config::OpenAIConfig>;
 
-impl QdrantConfig {
-    /// Creates a new [QdrantClient]
-    pub fn new_client(&self) -> QdrantClient {
-        let config = QdrantClientConfig::from_url(&self.url);
-        QdrantClient::new(Some(config)).unwrap()
+impl OpenAiConfig {
+    /// Creates a new [async_openai::Client]
+    pub fn new_client(&self) -> OpenAiClient {
+        let openai_cfg = async_openai::config::OpenAIConfig::new().with_api_key(self.key.clone());
+        async_openai::Client::with_config(openai_cfg)
     }
 }
 
@@ -166,14 +163,12 @@ mod tests {
         let server_port = std::env::var("APP_SERVER_PORT").unwrap();
         let auth_secret = std::env::var("APP_AUTH_SECRET").unwrap();
         let postgres_url = std::env::var("APP_POSTGRES_URL").unwrap();
-        let qdrant_url = std::env::var("APP_QDRANT_URL").unwrap();
         let trace_stdout = std::env::var("APP_TRACE_STDOUT").unwrap();
         let trace_filter = std::env::var("APP_TRACE_FILTER").unwrap();
         assert_eq!(cfg.server.host, server_host);
         assert_eq!(cfg.server.port.to_string(), server_port);
         assert_eq!(cfg.auth.secret, auth_secret);
         assert_eq!(cfg.postgres.url, postgres_url);
-        assert_eq!(cfg.qdrant.url, qdrant_url);
         // NB:  trace.stdout is a bool, so .to_string() might fail depending on the APP_TRACE_STDOUT value
         assert_eq!(cfg.trace.stdout.to_string(), trace_stdout);
         assert_eq!(cfg.trace.filter, trace_filter);
@@ -188,13 +183,5 @@ mod tests {
         let rows = postgres_client.query("SELECT 1", &[]).await.unwrap();
 
         assert_eq!(rows.len(), 1);
-    }
-
-    #[tokio::test]
-    async fn test_qdrant_conn() {
-        let cfg = AppConfig::load();
-
-        let qdrant_client = cfg.qdrant.new_client();
-        qdrant_client.health_check().await.unwrap();
     }
 }

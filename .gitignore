@@ -2,3 +2,6 @@
 
 # Documentation
 /doc/
+
+# Env vars
+.env
