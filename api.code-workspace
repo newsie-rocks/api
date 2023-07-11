@@ -8,6 +8,7 @@
     "rust-analyzer.linkedProjects": [
       "./Cargo.toml"
     ],
-    "rust-analyzer.runnables.extraEnv": null
+    "rust-analyzer.runnables.extraEnv": null,
+    "rust-analyzer.showUnlinkedFileNotification": false
   }
 }

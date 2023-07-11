@@ -13,8 +13,7 @@ The service manages:
 ## OpenAPI doc
 
 ```sh
-cargo run --bin docgen > doc/openapi.yml
-redocly preview-docs doc/openapi/specs.yaml
+cargo newsie-openapi > doc/openapi.yml
 ```
 
 ## Local dev
@@ -22,17 +21,10 @@ redocly preview-docs doc/openapi/specs.yaml
 ### Postgres
 
 ```sh
-brew services start postgresql@15
-```
-
-### Qdrant
-
-```sh
-docker run -p 6333:6333 -p 6334:6334 \
-    -e QDRANT__SERVICE__GRPC_PORT="6334" \
-    qdrant/qdrant
+# use postgress.app
 ```
 
 ### Tracing
 
-TBD
+```sh
+```

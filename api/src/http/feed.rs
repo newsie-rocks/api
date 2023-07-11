@@ -18,7 +18,7 @@ pub struct GetFeedsRespBody {
 }
 
 /// Get all the user feeds
-#[endpoint]
+#[endpoint(security(["bearerAuth" = []]))]
 #[tracing::instrument(skip_all)]
 pub async fn get_feeds(depot: &mut Depot) -> Result<Json<GetFeedsRespBody>, Error> {
     trace!("received request");
@@ -33,7 +33,7 @@ pub async fn get_feeds(depot: &mut Depot) -> Result<Json<GetFeedsRespBody>, Erro
 }
 
 /// Sync all the user feeds
-#[endpoint]
+#[endpoint(security(["bearerAuth" = []]))]
 #[tracing::instrument(skip_all)]
 pub async fn put_feeds(
     depot: &mut Depot,

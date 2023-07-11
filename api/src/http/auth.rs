@@ -8,7 +8,7 @@ use tracing::trace;
 use crate::{
     error::Error,
     http::ApiServices,
-    mdl::{NewUser, User, UserUpdate},
+    mdl::{NewUser, SubscriptionUpdate, User, UserUpdate},
 };
 
 /// Signup response body
@@ -25,8 +25,8 @@ pub struct SignupRespBody {
 #[tracing::instrument(skip_all)]
 pub async fn signup(
     depot: &mut Depot,
-    res: &mut Response,
     body: JsonBody<NewUser>,
+    res: &mut Response,
 ) -> Result<Json<SignupRespBody>, Error> {
     trace!("received request");
     let services = depot.obtain::<ApiServices>().unwrap();
@@ -67,8 +67,8 @@ pub struct LoginRespBody {
 #[tracing::instrument(skip_all)]
 pub async fn login(
     depot: &mut Depot,
-    res: &mut Response,
     body: JsonBody<LoginReqBody>,
+    res: &mut Response,
 ) -> Result<Json<LoginRespBody>, Error> {
     trace!("received request");
     let services = depot.obtain::<ApiServices>().unwrap();
@@ -97,7 +97,7 @@ pub struct GetUserRespBody {
 }
 
 /// Fetches the current user
-#[endpoint]
+#[endpoint(security(["bearerAuth" = []]))]
 #[tracing::instrument(skip_all)]
 pub async fn get_me(depot: &mut Depot) -> Result<Json<GetUserRespBody>, Error> {
     trace!("received request");
@@ -110,7 +110,7 @@ pub async fn get_me(depot: &mut Depot) -> Result<Json<GetUserRespBody>, Error> {
 }
 
 /// Updates the current user
-#[endpoint]
+#[endpoint(security(["bearerAuth" = []]))]
 #[tracing::instrument(skip_all)]
 pub async fn update_me(
     depot: &mut Depot,
@@ -134,7 +134,7 @@ pub async fn update_me(
 /// Deletes a user
 ///
 /// The ID is retrieved from the token
-#[endpoint]
+#[endpoint(security(["bearerAuth" = []]))]
 #[tracing::instrument(skip_all)]
 pub async fn delete_me(depot: &mut Depot) -> Result<(), Error> {
     trace!("received request");
@@ -147,6 +147,31 @@ pub async fn delete_me(depot: &mut Depot) -> Result<(), Error> {
     services.auth.delete_user(user.id).await?;
 
     Ok(())
+}
+
+/// Updates a subscription
+#[endpoint(security(["bearerAuth" = []]))]
+#[tracing::instrument(skip_all)]
+pub async fn put_subscription(
+    depot: &mut Depot,
+    body: JsonBody<SubscriptionUpdate>,
+    _res: &mut Response,
+) -> Result<Json<GetUserRespBody>, Error> {
+    trace!("received request");
+    let services = depot.obtain::<ApiServices>().unwrap();
+
+    let user = depot.obtain::<User>().ok_or(Error::Unauthenticated(
+        "not authenticated".to_string(),
+        None,
+    ))?;
+
+    let subsc_update = body.into_inner();
+    let user = services
+        .auth
+        .update_subscription(user.id, subsc_update)
+        .await?;
+
+    Ok(Json(GetUserRespBody { user }))
 }
 
 /// Authentication cookie key

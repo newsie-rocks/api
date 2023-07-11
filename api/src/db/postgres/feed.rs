@@ -76,24 +76,24 @@ impl PostgresClient {
             .await?;
 
         // insert all feeds
-        let mut insert_stmt_values: Vec<String> = vec![];
-        let mut insert_params: Vec<(Uuid, &Uuid, &String, &Option<String>)> = vec![];
-        for (i, f) in feeds.iter().enumerate() {
-            let id = match f.id {
-                Some(id) => id,
-                None => Uuid::new_v4(),
-            };
-            insert_stmt_values.push(format!(
-                "(${}, ${}, ${}, ${})",
-                i * 4 + 1,
-                i * 4 + 2,
-                i * 4 + 3,
-                i * 4 + 4
-            ));
-            insert_params.push((id, &user_id, &f.url, &f.name));
-        }
-        let new_feeds = trx
-            .query(
+        let new_feeds = if !feeds.is_empty() {
+            let mut insert_stmt_values: Vec<String> = vec![];
+            let mut insert_params: Vec<(Uuid, &Uuid, &String, &Option<String>)> = vec![];
+            for (i, f) in feeds.iter().enumerate() {
+                let id = match f.id {
+                    Some(id) => id,
+                    None => Uuid::new_v4(),
+                };
+                insert_stmt_values.push(format!(
+                    "(${}, ${}, ${}, ${})",
+                    i * 4 + 1,
+                    i * 4 + 2,
+                    i * 4 + 3,
+                    i * 4 + 4
+                ));
+                insert_params.push((id, &user_id, &f.url, &f.name));
+            }
+            trx.query(
                 &format!(
                     "INSERT into feeds (id, user_id, url, name) VALUES {} RETURNING *",
                     insert_stmt_values.join(", ")
@@ -109,7 +109,10 @@ impl PostgresClient {
             .await?
             .into_iter()
             .map(|row| row.into())
-            .collect::<Vec<Feed>>();
+            .collect::<Vec<Feed>>()
+        } else {
+            vec![]
+        };
 
         // commit the transaction
         trx.commit().await?;

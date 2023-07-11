@@ -3,7 +3,7 @@
 use salvo::{
     oapi::{
         security::{Http, HttpAuthScheme},
-        Components, SecurityRequirement, SecurityScheme,
+        Components, SecurityScheme,
     },
     prelude::*,
 };
@@ -16,10 +16,10 @@ use crate::{
     svc::{art::ArticleService, auth::AuthService, feed::FeedService},
 };
 
-pub mod article;
 pub mod auth;
 pub mod feed;
 pub mod mdw;
+pub mod summary;
 
 /// API services
 #[derive(Clone)]
@@ -51,7 +51,6 @@ pub async fn init_api_services(cfg: &AppConfig) -> Result<ApiServices, Error> {
     // init the Postgres client
     let postgres_pool = cfg.postgres.new_pool();
     let postgres_client = PostgresClient::new(postgres_pool);
-    postgres_client.init_schema().await?;
 
     // init the OpenAI client
     let openai_client = cfg.openai.new_client();
@@ -78,7 +77,8 @@ pub async fn init_router(services: ApiServices) -> Router {
                     Router::with_path("/me")
                         .get(auth::get_me)
                         .patch(auth::update_me)
-                        .delete(auth::delete_me),
+                        .delete(auth::delete_me)
+                        .push(Router::with_path("/subscription").put(auth::put_subscription)),
                 ),
         )
         .push(
@@ -86,7 +86,7 @@ pub async fn init_router(services: ApiServices) -> Router {
                 .get(feed::get_feeds)
                 .put(feed::put_feeds),
         )
-        .push(Router::with_path("/articles").put(article::post_articles))
+        .push(Router::with_path("/summaries").post(summary::post_summaries))
 }
 
 /// Generates the OpenAPI specs
@@ -96,10 +96,8 @@ pub fn gen_openapi_specs(router: &Router) -> OpenApi {
         "bearerAuth",
         SecurityScheme::Http(Http::new(HttpAuthScheme::Bearer).bearer_format("JWT")),
     );
-    let security_req = SecurityRequirement::new("bearerAuth", vec![] as Vec<String>);
     OpenApi::new("Api", version)
         .components(components)
-        .security(vec![security_req])
         .merge_router(router)
 }
 

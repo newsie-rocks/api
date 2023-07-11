@@ -7,7 +7,7 @@ use uuid::Uuid;
 use crate::{
     db::postgres::PostgresClient,
     error::Error,
-    mdl::{NewUser, User, UserUpdate},
+    mdl::{NewUser, SubscriptionUpdate, User, UserUpdate},
 };
 
 /// Authentication service
@@ -103,6 +103,32 @@ impl AuthService {
         Ok(user)
     }
 
+    /// Queries a user with a JWT token
+    pub async fn read_with_token(&self, token: &str) -> Result<Option<User>, Error> {
+        // Decode the token
+        let token_data = jsonwebtoken::decode::<AuthJwtClaims>(
+            token,
+            &jsonwebtoken::DecodingKey::from_secret(self.secret.as_bytes()),
+            &jsonwebtoken::Validation::default(),
+        )?;
+
+        // Query the user by ID
+        self.read(token_data.claims.user_id).await
+    }
+
+    /// Updates the user subscription
+    pub async fn update_subscription(
+        &self,
+        user_id: Uuid,
+        subscription_update: SubscriptionUpdate,
+    ) -> Result<User, Error> {
+        // TODO: Process the payment before updating the DB
+
+        self.db
+            .update_user_subscription(user_id, subscription_update)
+            .await
+    }
+
     /// Issues a JWT token for a user
     pub fn issue_token(&self, user: &User) -> Result<String, Error> {
         // define the token expiry
@@ -119,19 +145,6 @@ impl AuthService {
             &claims,
             &jsonwebtoken::EncodingKey::from_secret(self.secret.as_bytes()),
         )?)
-    }
-
-    /// Queries a user with a JWT token
-    pub async fn read_with_token(&self, token: &str) -> Result<Option<User>, Error> {
-        // Decode the token
-        let token_data = jsonwebtoken::decode::<AuthJwtClaims>(
-            token,
-            &jsonwebtoken::DecodingKey::from_secret(self.secret.as_bytes()),
-            &jsonwebtoken::Validation::default(),
-        )?;
-
-        // Query the user by ID
-        self.read(token_data.claims.user_id).await
     }
 }
 

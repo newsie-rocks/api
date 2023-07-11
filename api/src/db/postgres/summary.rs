@@ -3,13 +3,13 @@
 use tokio_postgres::{types::ToSql, Row};
 use uuid::Uuid;
 
-use crate::{error::Error, mdl::Article};
+use crate::{error::Error, mdl::Summary};
 
 use super::{util::Vector, PostgresClient};
 
-impl From<Row> for Article {
+impl From<Row> for Summary {
     fn from(value: Row) -> Self {
-        Article {
+        Summary {
             id: value.get::<_, Uuid>("id"),
             url: value.get::<_, String>("url"),
             summary: value.get::<_, String>("summary"),
@@ -20,13 +20,13 @@ impl From<Row> for Article {
 }
 
 impl PostgresClient {
-    /// Creates the `articles` table
-    pub async fn create_table_articles(&self) -> Result<(), Error> {
+    /// Creates the `summaries` table
+    pub async fn create_table_summaries(&self) -> Result<(), Error> {
         let client = self.client().await?;
         Ok(client
             .batch_execute(
                 "
-                    CREATE TABLE IF NOT EXISTS articles (
+                    CREATE TABLE IF NOT EXISTS summaries (
                         id          UUID PRIMARY KEY,
                         url         TEXT NOT NULL UNIQUE,    
                         summary     TEXT,
@@ -39,13 +39,13 @@ impl PostgresClient {
 }
 
 impl PostgresClient {
-    /// Search articles by url
-    pub async fn search_articles_by_urls(&self, urls: &[&str]) -> Result<Vec<Article>, Error> {
+    /// Search summaries by url
+    pub async fn search_summaries_by_urls(&self, urls: &[&str]) -> Result<Vec<Summary>, Error> {
         let client = self.client().await?;
         Ok(client
             .query(
                 &format!(
-                    "SELECT * FROM articles WHERE id IN({})",
+                    "SELECT * FROM summaries WHERE url IN({})",
                     urls.iter()
                         .enumerate()
                         .map(|(i, _url)| format!("${}", i + 1))
@@ -66,11 +66,11 @@ impl PostgresClient {
             .collect::<Vec<_>>())
     }
 
-    /// Insert articles in the DB
-    pub async fn insert_articles(&self, articles: Vec<Article>) -> Result<Vec<Article>, Error> {
+    /// Insert summaries in the DB
+    pub async fn insert_summaries(&self, articles: Vec<Summary>) -> Result<Vec<Summary>, Error> {
         let client = self.client().await?;
         let stmt = format!(
-            "INSERT INTO articles (id, url, summary, keywords, embeddings) VALUES {} RETURNING *",
+            "INSERT INTO summaries (id, url, summary, keywords, embeddings) VALUES {} RETURNING *",
             articles
                 .iter()
                 .enumerate()
@@ -108,14 +108,14 @@ impl PostgresClient {
             .collect::<Vec<_>>())
     }
 
-    /// Remove articles in the DB
-    pub async fn remove_articles(&self, articles: Vec<Article>) -> Result<(), Error> {
+    /// Remove summaries in the DB
+    pub async fn remove_summaries(&self, summaries: Vec<Summary>) -> Result<(), Error> {
         let client = self.client().await?;
         let _res = client
             .execute(
                 format!(
-                    "DELETE FROM articles WHERE id IN({})",
-                    articles
+                    "DELETE FROM summaries WHERE id IN({})",
+                    summaries
                         .iter()
                         .enumerate()
                         .map(|(i, _art)| format!("${}", i + 1))
@@ -123,7 +123,7 @@ impl PostgresClient {
                         .join(", ")
                 )
                 .as_str(),
-                &articles
+                &summaries
                     .iter()
                     .map(|art| &art.id as &(dyn ToSql + Sync))
                     .collect::<Vec<_>>(),
@@ -143,7 +143,7 @@ mod tests {
     use super::*;
 
     use crate::config::AppConfig;
-    use crate::mdl::Article;
+    use crate::mdl::Summary;
 
     /// Initializes the user store
     fn init_client() -> PostgresClient {
@@ -162,14 +162,14 @@ mod tests {
     #[tokio::test]
     async fn test_create_table() {
         let client = init_client();
-        client.create_table_articles().await.unwrap();
+        client.create_table_summaries().await.unwrap();
     }
 
     #[tokio::test]
-    async fn test_insert_articles() {
+    async fn test_insert_summaries() {
         let client = setup().await;
 
-        let mut articles = vec![];
+        let mut summaries = vec![];
         for _i in 0..5 {
             let name: String = Word().fake();
             let url = format!("https:://www.link.com/{name}");
@@ -177,10 +177,10 @@ mod tests {
             let keywords = vec!["kw1".to_string(), "kw2".to_string()];
             let embeddings = rand::thread_rng()
                 .sample_iter(Uniform::from(0.0..1.0))
-                .take(2)
+                .take(1536)
                 .collect::<Vec<_>>()
                 .into();
-            articles.push(Article {
+            summaries.push(Summary {
                 id: Uuid::new_v4(),
                 url,
                 summary,
@@ -188,10 +188,10 @@ mod tests {
                 embeddings,
             })
         }
-        let articles = client.insert_articles(articles).await.unwrap();
-        assert_eq!(articles.len(), 5);
+        let summaries = client.insert_summaries(summaries).await.unwrap();
+        assert_eq!(summaries.len(), 5);
 
-        client.remove_articles(articles).await.unwrap();
+        client.remove_summaries(summaries).await.unwrap();
         teardown(client).await;
     }
 }

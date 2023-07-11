@@ -5,7 +5,7 @@ use uuid::Uuid;
 
 use crate::{
     error::Error,
-    mdl::{NewUser, User, UserUpdate},
+    mdl::{NewUser, Subscription, SubscriptionUpdate, User, UserUpdate},
 };
 
 use super::PostgresClient;
@@ -17,6 +17,7 @@ impl From<Row> for User {
             name: value.get::<_, String>("name"),
             email: value.get::<_, String>("email"),
             password: value.get::<_, String>("password"),
+            subscription: value.get::<_, Subscription>("subscription"),
         }
     }
 }
@@ -30,10 +31,11 @@ impl PostgresClient {
             .batch_execute(
                 "
                     CREATE TABLE IF NOT EXISTS users (
-                        id          UUID PRIMARY KEY,
-                        name        TEXT NOT NULL,
-                        email       TEXT NOT NULL,
-                        password    TEXT NOT NULL
+                        id              UUID PRIMARY KEY,
+                        name            TEXT NOT NULL,
+                        email           TEXT NOT NULL,
+                        password        TEXT NOT NULL,
+                        subscription    subscription NOT NULL 
                     )",
             )
             .await?)
@@ -47,12 +49,13 @@ impl PostgresClient {
 
         Ok(client
             .query_one(
-                "INSERT into users (id, name, email, password) VALUES ($1, $2, $3, $4) RETURNING *",
+                "INSERT into users (id, name, email, password, subscription) VALUES ($1, $2, $3, $4, $5) RETURNING *",
                 &[
                     &Uuid::new_v4(),
                     &new_user.name,
                     &new_user.email,
                     &new_user.password,
+                    &Subscription::Free
                 ],
             )
             .await?
@@ -117,6 +120,27 @@ impl PostgresClient {
             );
             Ok(client.query_one(&stmt, &params).await?.into())
         }
+    }
+
+    /// Update the user subscription
+    pub async fn update_user_subscription(
+        &self,
+        id: Uuid,
+        subscription_update: SubscriptionUpdate,
+    ) -> Result<User, Error> {
+        let client = self.client().await?;
+
+        let mut params: Vec<&(dyn tokio_postgres::types::ToSql + Sync)> = vec![];
+        params.push(&id);
+        params.push(&subscription_update.subscription);
+
+        Ok(client
+            .query_one(
+                "UPDATE users SET id=$1, subscription=$2 WHERE id=$1 RETURNING *",
+                &params,
+            )
+            .await?
+            .into())
     }
 
     /// Delete a user
@@ -206,6 +230,22 @@ pub mod tests {
             .await
             .unwrap();
         assert_eq!(user.name, new_name);
+        teardown_test_user(db, test_user).await;
+    }
+
+    #[tokio::test]
+    async fn test_update_subscription() {
+        let (db, test_user) = setup_test_user().await;
+        let user = db
+            .update_user_subscription(
+                test_user.id,
+                SubscriptionUpdate {
+                    subscription: Subscription::Mid,
+                },
+            )
+            .await
+            .unwrap();
+        assert_eq!(user.subscription, Subscription::Mid);
         teardown_test_user(db, test_user).await;
     }
 }

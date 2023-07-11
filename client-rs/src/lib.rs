@@ -3,16 +3,21 @@
 pub mod error;
 
 use error::Error;
-use newsie_api::http::error::HttpErrorResponse;
+use newsie_api::error::HttpErrorResponse;
+pub use newsie_api::{
+    http::{
+        auth::{GetUserRespBody, LoginReqBody, LoginRespBody, SignupRespBody},
+        feed::GetFeedsRespBody,
+        summary::SummariesRespBody,
+    },
+    mdl::{Feed, FeedUpdate, NewUser, Subscription, SubscriptionUpdate, Summary, User, UserUpdate},
+};
 use reqwest::header::{HeaderMap, AUTHORIZATION};
 
 // Re-exports
-pub use newsie_api::http::auth::{
-    GetUserRespBody, LoginReqBody, LoginRespBody, NewUser, SignupRespBody, User, UserFields,
-};
 
 /// API client
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Client {
     /// Base URL
     pub url: String,
@@ -49,7 +54,6 @@ impl Client {
 
         if let Some(token) = &self.token {
             headers.insert(AUTHORIZATION, format!("Bearer {}", token).parse().unwrap());
-            headers.insert("X-Test", "xxx".parse().unwrap());
         }
 
         let res = reqwest::Client::new()
@@ -121,7 +125,7 @@ impl Client {
     }
 
     /// Update the user
-    pub async fn update_me(&self, fields: UserFields) -> Result<GetUserRespBody, Error> {
+    pub async fn update_me(&self, fields: UserUpdate) -> Result<User, Error> {
         let mut headers = HeaderMap::new();
         if let Some(token) = &self.token {
             headers.insert(AUTHORIZATION, format!("Bearer {}", token).parse().unwrap());
@@ -136,7 +140,7 @@ impl Client {
 
         if res.status().is_success() {
             let ok = res.json::<GetUserRespBody>().await?;
-            Ok(ok)
+            Ok(ok.user)
         } else {
             let err = res.json::<HttpErrorResponse>().await?;
             Err(err.into())
@@ -159,6 +163,101 @@ impl Client {
         if res.status().is_success() {
             self.unset_token();
             Ok(())
+        } else {
+            let err = res.json::<HttpErrorResponse>().await?;
+            Err(err.into())
+        }
+    }
+
+    /// Update the user subscription
+    pub async fn update_subscription(&self, update: SubscriptionUpdate) -> Result<User, Error> {
+        let mut headers = HeaderMap::new();
+        if let Some(token) = &self.token {
+            headers.insert(AUTHORIZATION, format!("Bearer {}", token).parse().unwrap());
+        }
+
+        let res = reqwest::Client::new()
+            .put(&format!("{}/auth/me/subscription", self.url))
+            .headers(headers)
+            .json(&update)
+            .send()
+            .await?;
+
+        if res.status().is_success() {
+            let body = res.json::<GetUserRespBody>().await?;
+            Ok(body.user)
+        } else {
+            let err = res.json::<HttpErrorResponse>().await?;
+            Err(err.into())
+        }
+    }
+}
+
+impl Client {
+    /// Get the user feeds
+    pub async fn get_feeds(&self) -> Result<Vec<Feed>, Error> {
+        let mut headers = HeaderMap::new();
+        if let Some(token) = &self.token {
+            headers.insert(AUTHORIZATION, format!("Bearer {}", token).parse().unwrap());
+        }
+
+        let res = reqwest::Client::new()
+            .get(&format!("{}/feeds", self.url))
+            .headers(headers)
+            .send()
+            .await?;
+
+        if res.status().is_success() {
+            let body = res.json::<GetFeedsRespBody>().await?;
+            Ok(body.feeds)
+        } else {
+            let err = res.json::<HttpErrorResponse>().await?;
+            Err(err.into())
+        }
+    }
+
+    /// Sync the user feeds
+    pub async fn sync_feeds(&self, feeds: &[FeedUpdate]) -> Result<Vec<Feed>, Error> {
+        let mut headers = HeaderMap::new();
+        if let Some(token) = &self.token {
+            headers.insert(AUTHORIZATION, format!("Bearer {}", token).parse().unwrap());
+        }
+
+        let res = reqwest::Client::new()
+            .put(&format!("{}/feeds", self.url))
+            .headers(headers)
+            .json(feeds)
+            .send()
+            .await?;
+
+        if res.status().is_success() {
+            let body = res.json::<GetFeedsRespBody>().await?;
+            Ok(body.feeds)
+        } else {
+            let err = res.json::<HttpErrorResponse>().await?;
+            Err(err.into())
+        }
+    }
+}
+
+impl Client {
+    /// Summarize a list of articles
+    pub async fn summarize(&self, urls: &[&str]) -> Result<Vec<Summary>, Error> {
+        let mut headers = HeaderMap::new();
+        if let Some(token) = &self.token {
+            headers.insert(AUTHORIZATION, format!("Bearer {}", token).parse().unwrap());
+        }
+
+        let res = reqwest::Client::new()
+            .post(&format!("{}/summaries", self.url))
+            .headers(headers)
+            .json(&urls.iter().map(|url| url.to_string()).collect::<Vec<_>>())
+            .send()
+            .await?;
+
+        if res.status().is_success() {
+            let body = res.json::<SummariesRespBody>().await?;
+            Ok(body.summaries)
         } else {
             let err = res.json::<HttpErrorResponse>().await?;
             Err(err.into())

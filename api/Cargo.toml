@@ -33,6 +33,7 @@ salvo = { version = "0.44.1", features = ["oapi", "affix"] }
 async-openai = "0.12.1"
 dotenv = "0.15.0"
 futures = "0.3.28"
+postgres-types = { version = "0.2.5", features = ["derive"] }
 
 [dev-dependencies]
 fake = "2.6.1"

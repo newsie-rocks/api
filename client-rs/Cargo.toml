@@ -8,3 +8,7 @@ description = "API client library"
 newsie-api = { version = "0.1.0", path = "../api" }
 reqwest = { version = "0.11.18", features = ["json", "rustls-tls"] }
 thiserror = "1.0.40"
+
+[dev-dependencies]
+fake = "2.6.1"
+tokio = { version = "1.29.1", features = ["full"] }

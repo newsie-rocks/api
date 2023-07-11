@@ -1,5 +1,6 @@
 //! Models
 
+use postgres_types::{FromSql, ToSql};
 use salvo::prelude::ToSchema;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -17,6 +18,8 @@ pub struct User {
     pub email: String,
     /// Password
     pub password: String,
+    /// Subscription
+    pub subscription: Subscription,
 }
 
 /// New user
@@ -39,6 +42,38 @@ pub struct UserUpdate {
     pub email: Option<String>,
     /// Password
     pub password: Option<String>,
+}
+
+/// Subscription
+#[derive(
+    Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema, Default, FromSql, ToSql,
+)]
+#[postgres(name = "subscription")]
+pub enum Subscription {
+    /// Free tier
+    #[default]
+    #[postgres(name = "FREE")]
+    Free,
+    /// Mid tier
+    #[postgres(name = "MID")]
+    Mid,
+}
+
+impl std::fmt::Display for Subscription {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let value = match self {
+            Subscription::Free => "free subscription".to_string(),
+            Subscription::Mid => "mid tier subscription".to_string(),
+        };
+        write!(f, "{}", value)
+    }
+}
+
+/// Subscription update
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct SubscriptionUpdate {
+    /// Free tier
+    pub subscription: Subscription,
 }
 
 /// User feed
@@ -67,9 +102,9 @@ pub struct FeedUpdate {
     pub name: Option<String>,
 }
 
-/// An article
+/// An article summary
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct Article {
+pub struct Summary {
     /// ID
     pub id: Uuid,
     /// Url

@@ -20,6 +20,38 @@ pub enum Error {
     Internal(String, Option<String>),
 }
 
+impl Error {
+    /// Returns the main message
+    pub fn message(&self) -> String {
+        match self {
+            Error::InvalidRequest(msg, _) => msg.clone(),
+            Error::NotFound(msg, _) => msg.clone(),
+            Error::Unauthenticated(msg, _) => msg.clone(),
+            Error::Internal(msg, _) => msg.clone(),
+        }
+    }
+
+    /// Returns the error code
+    pub fn code(&self) -> String {
+        match self {
+            Error::InvalidRequest(_, _) => "INVALID_REQUEST".to_string(),
+            Error::NotFound(_, _) => "NOT_FOUND".to_string(),
+            Error::Unauthenticated(_, _) => "NOT_AUTHENTICATED".to_string(),
+            Error::Internal(_, _) => "INTERNAL".to_string(),
+        }
+    }
+
+    /// Returns the HTTP code
+    pub fn http_code(&self) -> StatusCode {
+        match self {
+            Error::InvalidRequest(_, _) => StatusCode::BAD_REQUEST,
+            Error::NotFound(_, _) => StatusCode::NOT_FOUND,
+            Error::Unauthenticated(_, _) => StatusCode::UNAUTHORIZED,
+            Error::Internal(_, _) => StatusCode::INTERNAL_SERVER_ERROR,
+        }
+    }
+}
+
 impl From<deadpool_postgres::PoolError> for Error {
     fn from(value: deadpool_postgres::PoolError) -> Self {
         Error::Internal(value.to_string(), None)
@@ -52,50 +84,32 @@ impl From<salvo::http::ParseError> for Error {
 
 /// Http error response
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
-struct HttpErrorResponse {
+pub struct HttpErrorResponse {
     /// Main error
-    error: HttpError,
+    pub error: HttpError,
 }
 
 /// Error JSON shape
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
-struct HttpError {
+pub struct HttpError {
     /// Code (string)
-    code: String,
+    pub code: String,
     /// Message
-    message: String,
+    pub message: String,
     /// Other details
-    detail: Option<String>,
+    pub detail: Option<String>,
 }
 
 #[async_trait]
 impl Writer for Error {
     async fn write(mut self, _req: &mut Request, _depot: &mut Depot, res: &mut Response) {
-        let (code, status, message, detail) = match self {
-            Error::InvalidRequest(message, detail) => (
-                "INVALID_REQUEST".to_string(),
-                StatusCode::BAD_REQUEST,
-                message,
-                detail,
-            ),
-            Error::NotFound(message, detail) => (
-                "NOT_FOUND".to_string(),
-                StatusCode::NOT_FOUND,
-                message,
-                detail,
-            ),
-            Error::Unauthenticated(message, detail) => (
-                "NOT_AUTHENTICATED".to_string(),
-                StatusCode::UNAUTHORIZED,
-                message,
-                detail,
-            ),
-            Error::Internal(message, detail) => (
-                "NOT_FOUND".to_string(),
-                StatusCode::INTERNAL_SERVER_ERROR,
-                message,
-                detail,
-            ),
+        let code = self.code();
+        let http_code = self.http_code();
+        let (message, detail) = match self {
+            Error::InvalidRequest(message, detail) => (message, detail),
+            Error::NotFound(message, detail) => (message, detail),
+            Error::Unauthenticated(message, detail) => (message, detail),
+            Error::Internal(message, detail) => (message, detail),
         };
 
         let err = HttpErrorResponse {
@@ -105,7 +119,7 @@ impl Writer for Error {
                 detail,
             },
         };
-        res.status_code(status);
+        res.status_code(http_code);
         res.render(Json(err));
     }
 }
