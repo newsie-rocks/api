@@ -3,12 +3,10 @@
 use anyhow::Error;
 use newsie_client::{Client as ApiClient, NewUser, User};
 
-use crate::svc::config::Config;
-
-use self::db::DbClient;
-
-mod config;
-mod db;
+use crate::{
+    db::DbClient,
+    model::{Config, Feed},
+};
 
 /// Service
 pub struct Service {
@@ -78,5 +76,51 @@ impl Service {
         let user = res.user;
         self.save_token(&token)?;
         Ok(user)
+    }
+
+    /// Login a user
+    pub async fn login(&mut self, email: &str, password: &str) -> Result<User, Error> {
+        let res = self.api.login(email, password).await?;
+        let token = res.token;
+        let user = res.user;
+        self.save_token(&token)?;
+        Ok(user)
+    }
+
+    /// Returns the current user
+    pub async fn me(&self) -> Result<User, Error> {
+        let res = self.api.me().await?;
+        Ok(res.user)
+    }
+}
+
+impl Service {
+    /// Returns the db feeds
+    pub async fn get_feeds(&self) -> Result<Vec<Feed>, Error> {
+        self.db.get_feeds().await
+    }
+
+    /// Adds a feed
+    pub async fn add_feeds(&mut self, feeds: Vec<Feed>) -> Result<Vec<Feed>, Error> {
+        self.db.create_feeds(feeds).await
+    }
+
+    /// Removes feeds
+    pub async fn remove_feeds(&mut self, feeds_urls: Vec<String>) -> Result<(), Error> {
+        self.db.remove_feeds(feeds_urls).await
+    }
+
+    /// Retrieves the feed articles
+    pub async fn get_articles(&self, feed: &Feed) -> Result<Vec<Article>, Error> {
+        let channel = feed.load().await?;
+        let mut articles = vec![];
+        for item in channel.items {
+            articles.push(Article {
+                feed_url: feed.url.clone(),
+                url: item.link.ok_or(Error::msg("Missing article link"))?,
+                title: item.title,
+            });
+        }
+        Ok(articles)
     }
 }

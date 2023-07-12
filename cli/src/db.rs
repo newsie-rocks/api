@@ -5,7 +5,7 @@ use std::{fs, path::PathBuf};
 use anyhow::{Error, Ok};
 use rusqlite::Connection;
 
-use super::config::Config;
+use crate::model::{Config, Feed};
 
 /// Database client
 pub struct DbClient {
@@ -67,10 +67,10 @@ impl DbClient {
 
     /// Inititializes the SQLite schema
     pub fn init_db_schema(&self) -> Result<(), Error> {
-        let query =
-            "CREATE TABLE config (id INTEGER PRIMARY KEY, api_url TEXT NOT NULL, token TEXT);";
-        let _n = self.conn.execute(query, ())?;
-        Ok(())
+        Ok(self.conn.execute_batch("
+            CREATE TABLE config (id INTEGER PRIMARY KEY, api_url TEXT NOT NULL, token TEXT);
+            CREATE TABLE feeds (id INTEGER PRIMARY KEY AUTOINCREMENT, url TEXT NOT NULL UNIQUE, name TEXT, folder TEXT);
+        ")?)
     }
 }
 
@@ -105,5 +105,44 @@ impl DbClient {
             (&config.api_url, &config.token),
         )?;
         Ok(config)
+    }
+}
+
+impl DbClient {
+    /// Reads the feeds
+    pub async fn get_feeds(&self) -> Result<Vec<Feed>, Error> {
+        let mut stmt = self.conn.prepare("SELECT * FROM feeds")?;
+        let mut rows = stmt.query([])?;
+        let mut feeds = vec![];
+        while let Some(row) = rows.next()? {
+            feeds.push(Feed {
+                url: row.get(1)?,
+                name: row.get(2)?,
+                folder: row.get(3)?,
+            })
+        }
+        Ok(feeds)
+    }
+
+    /// Insert feeds
+    pub async fn create_feeds(&mut self, feeds: Vec<Feed>) -> Result<Vec<Feed>, Error> {
+        let trx = self.conn.transaction()?;
+        for feed in &feeds {
+            trx.execute(
+                "INSERT INTO feeds (url, name, folder) VALUES (?1, ?2, ?3)",
+                (&feed.url, &feed.name, &feed.folder),
+            )?;
+        }
+        trx.commit()?;
+        Ok(feeds)
+    }
+
+    /// Remove feeds
+    pub async fn remove_feeds(&mut self, feeds_urls: Vec<String>) -> Result<(), Error> {
+        let _n_deleted = self.conn.execute(
+            "DELETE FROM feeds WHERE url IN (?1)",
+            [feeds_urls.into_iter().collect::<Vec<_>>().join(", ")],
+        )?;
+        Ok(())
     }
 }

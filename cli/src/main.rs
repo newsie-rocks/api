@@ -2,9 +2,11 @@
 
 use crate::util::ResultExt;
 
-pub mod cmd;
-pub mod svc;
-pub mod util;
+mod cmd;
+mod db;
+mod model;
+mod svc;
+mod util;
 
 // pub mod auth;
 // pub mod feed;

@@ -6,6 +6,7 @@ use inquire::{Password, Text};
 use newsie_client::NewUser;
 
 use crate::{
+    model::Feed,
     svc::Service,
     util::{info, success, ResultExt},
 };
@@ -16,6 +17,8 @@ pub async fn run() -> Result<(), Error> {
     match args.commands {
         MainCommands::Config(args) => run_config_cmd(args).await,
         MainCommands::Auth(args) => run_auth_cmd(args).await,
+        MainCommands::Feeds(args) => run_feeds_cmd(args).await,
+        MainCommands::Read => run_read_cmd().await,
         // MainCommands::Subsc(args) => subsc::run(args).await,
         // MainCommands::Feeds(args) => feed::run(args).await,
     }
@@ -37,10 +40,10 @@ pub enum MainCommands {
     Config(ConfigArgs),
     /// Authentication and user commands
     Auth(AuthArgs),
-    // /// Subscription commands
-    // Subsc(subsc::SubscArgs),
-    // /// Feeds commands
-    // Feeds(feed::FeedsArgs),
+    /// Feeds commands
+    Feeds(FeedsArgs),
+    /// Read the articles
+    Read,
 }
 
 /// Configuration commands
@@ -55,9 +58,9 @@ pub struct ConfigArgs {
 /// Configuration commands
 #[derive(Subcommand)]
 pub enum ConfigCommands {
-    /// Shows the configuration
+    /// Shows the CLI configuration
     Show,
-    /// Updates the configuration
+    /// Updates the CLI configuration
     Update,
 }
 
@@ -110,7 +113,7 @@ pub enum AuthCommands {
 }
 
 /// Runs the auth commands
-pub async fn run_auth_cmd(args: AuthArgs) -> Result<(), Error> {
+async fn run_auth_cmd(args: AuthArgs) -> Result<(), Error> {
     let mut service = Service::new()?;
     match args.commands {
         AuthCommands::Signup => {
@@ -127,22 +130,17 @@ pub async fn run_auth_cmd(args: AuthArgs) -> Result<(), Error> {
             success(&format!("Signed up as {}", user.name));
         }
         AuthCommands::Login => {
-            todo!()
-            // let email = Text::new("Email:").prompt().unwrap_or_exit();
-            // let password = Password::new("Password:").prompt().unwrap_or_exit();
-            // let res = client.login(&email, &password).await.unwrap_or_exit();
-
-            // cfg.set_token(&res.token, true);
-            // success(&format!("Logged-in as {}", res.user.name));
+            info("Enter your login info:");
+            let email = Text::new("Email:").prompt()?;
+            let password = Password::new("Password:").prompt()?;
+            let user = service.login(&email, &password).await?;
+            success(&format!("Logged in as {}", user.name));
         }
         AuthCommands::Me => {
-            todo!()
-            // let res = client.me().await.unwrap_or_exit();
-            // let user = res.user;
-
-            // println!("Logged-in user:");
-            // println!("- name: {}", user.name);
-            // println!("- email: {}", user.email);
+            let user = service.me().await?;
+            println!("Logged-in user:");
+            println!("- name: {}", user.name);
+            println!("- email: {}", user.email);
         }
         AuthCommands::Update => {
             todo!()
@@ -174,5 +172,76 @@ pub async fn run_auth_cmd(args: AuthArgs) -> Result<(), Error> {
             // cfg.unset_token(true);
         }
     }
+    Ok(())
+}
+
+/// Feeds commands
+#[derive(Parser)]
+#[command(author, version, about, long_about = None)]
+#[command(propagate_version = true)]
+pub struct FeedsArgs {
+    #[command(subcommand)]
+    commands: FeedsCommands,
+}
+
+/// Feed commands
+#[derive(Subcommand)]
+pub enum FeedsCommands {
+    /// List all the feeds
+    Ls,
+    /// Adds a feed
+    Add {
+        /// Feed url
+        url: String,
+        /// Feed name
+        #[arg(long, short)]
+        name: Option<String>,
+        /// Folder name
+        #[arg(long, short)]
+        folder: Option<String>,
+    },
+    /// Removes feeds
+    Rm {
+        /// Feeds urls
+        urls: Vec<String>,
+    },
+}
+
+/// Runs the feeds commands
+async fn run_feeds_cmd(args: FeedsArgs) -> Result<(), Error> {
+    let mut service = Service::new()?;
+    match args.commands {
+        FeedsCommands::Ls => {
+            let feeds = service.get_feeds().await?;
+            println!("FEEDS:");
+            for feed in &feeds {
+                println!("  - {}", feed.url);
+            }
+        }
+        FeedsCommands::Add { url, name, folder } => {
+            let feed = Feed { url, name, folder };
+            service.add_feeds(vec![feed]).await?;
+            success("feed added");
+        }
+        FeedsCommands::Rm { urls } => {
+            service.remove_feeds(urls).await?;
+            success("feed(s) removed");
+        }
+    }
+    Ok(())
+}
+
+/// Runs the read command
+async fn run_read_cmd() -> Result<(), Error> {
+    let service = Service::new()?;
+    let feeds = service.get_feeds().await?;
+    for feed in feeds {
+        println!("FEED: {}", feed.url);
+        let articles = service.get_articles(&feed).await?;
+        for article in articles {
+            println!("  - {}", article.url);
+        }
+    }
+    println!("OK");
     Ok(())
 }
